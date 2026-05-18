@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -107,8 +106,7 @@ func (a Auth) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !allowed {
-		msg := fmt.Sprintf("you must be a member of %s to use this UI", a.Cfg.AllowedOrg)
-		http.Error(w, msg, http.StatusForbidden)
+		http.Error(w, "you must be a member of "+a.Cfg.AllowedOrg+" to use this UI", http.StatusForbidden)
 		return
 	}
 
