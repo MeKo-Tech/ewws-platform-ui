@@ -107,11 +107,8 @@ func (a Auth) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !allowed {
-		http.Error(
-			w,
-			fmt.Sprintf("you must be a member of %s to use this UI", a.Cfg.AllowedOrg),
-			http.StatusForbidden,
-		)
+		msg := fmt.Sprintf("you must be a member of %s to use this UI", a.Cfg.AllowedOrg)
+		http.Error(w, msg, http.StatusForbidden)
 		return
 	}
 
