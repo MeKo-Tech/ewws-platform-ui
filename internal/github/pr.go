@@ -98,23 +98,23 @@ func OpenClaimPR(ctx context.Context, httpClient *http.Client, req PRRequest) (*
 
 func (r *PRRequest) validate() error {
 	if r.Repo == "" {
-		return errors.New("Repo is required")
+		return errors.New("repo is required")
 	}
 
 	if r.Slug == "" {
-		return errors.New("Slug is required")
+		return errors.New("slug is required")
 	}
 
 	if len(r.YAMLContent) == 0 {
-		return errors.New("YAMLContent is required")
+		return errors.New("yaml content is required")
 	}
 
 	if r.Branch == "" {
-		return errors.New("Branch is required")
+		return errors.New("branch is required")
 	}
 
 	if r.Title == "" {
-		return errors.New("Title is required")
+		return errors.New("title is required")
 	}
 
 	if r.BaseBranch == "" {

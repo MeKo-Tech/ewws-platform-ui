@@ -78,10 +78,10 @@ type ResourceBlock struct {
 
 // Features is the optional opt-in block (websocket, jobs, auth, ...).
 type Features struct {
-	Websocket      bool           `yaml:"websocket,omitempty"        json:"websocket,omitempty"`
-	ScheduledJobs  []ScheduledJob `yaml:"scheduled_jobs,omitempty"   json:"scheduled_jobs,omitempty"`
-	IngressAuth    string         `yaml:"ingress_auth,omitempty"     json:"ingress_auth,omitempty"`
-	CustomDomains  []string       `yaml:"custom_domains,omitempty"   json:"custom_domains,omitempty"`
+	Websocket     bool           `yaml:"websocket,omitempty"        json:"websocket,omitempty"`
+	ScheduledJobs []ScheduledJob `yaml:"scheduled_jobs,omitempty"   json:"scheduled_jobs,omitempty"`
+	IngressAuth   string         `yaml:"ingress_auth,omitempty"     json:"ingress_auth,omitempty"`
+	CustomDomains []string       `yaml:"custom_domains,omitempty"   json:"custom_domains,omitempty"`
 }
 
 // ScheduledJob is one cron-style job.

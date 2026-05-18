@@ -18,9 +18,9 @@ import (
 
 // UserInfo is the minimal user profile we keep in the session.
 type UserInfo struct {
-	Login   string
-	Name    string
-	Email   string
+	Login     string
+	Name      string
+	Email     string
 	AvatarURL string
 }
 

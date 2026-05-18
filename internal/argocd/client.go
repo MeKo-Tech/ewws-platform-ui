@@ -58,7 +58,7 @@ type Application struct {
 		} `json:"sync"`
 
 		Health struct {
-			Status  string `json:"status"`  // Healthy | Progressing | Degraded | Suspended | Missing | Unknown
+			Status  string `json:"status"` // Healthy | Progressing | Degraded | Suspended | Missing | Unknown
 			Message string `json:"message"`
 		} `json:"health"`
 

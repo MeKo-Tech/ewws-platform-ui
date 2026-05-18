@@ -49,7 +49,7 @@ func LoadFromEnv() (*Config, error) {
 
 	secret := os.Getenv("SESSION_SECRET")
 	if secret == "" {
-		return nil, errors.New("SESSION_SECRET is required (32-byte base64)")
+		return nil, errors.New("session secret is required (32-byte base64)")
 	}
 
 	raw, err := base64.StdEncoding.DecodeString(secret)
@@ -84,15 +84,15 @@ func (c *Config) OAuthRedirectURL() string {
 
 func (c *Config) validate() error {
 	if c.GitHubClientID == "" {
-		return errors.New("GITHUB_CLIENT_ID is required")
+		return errors.New("github client id is required")
 	}
 
 	if c.GitHubClientSecret == "" {
-		return errors.New("GITHUB_CLIENT_SECRET is required")
+		return errors.New("github client secret is required")
 	}
 
 	if c.ArgoCDToken == "" {
-		return errors.New("ARGOCD_TOKEN is required")
+		return errors.New("argocd token is required")
 	}
 
 	return nil
