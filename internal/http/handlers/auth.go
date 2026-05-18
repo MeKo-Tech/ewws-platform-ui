@@ -106,7 +106,7 @@ func (a Auth) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !allowed {
-		http.Error(w, "you must be a member of "+a.Cfg.AllowedOrg+" to use this UI", http.StatusForbidden)
+		a.denyOrgAccess(w)
 		return
 	}
 
@@ -168,4 +168,9 @@ func clearCookie(w http.ResponseWriter, name string) {
 // Sanitize accepts user-supplied text and trims it for safe display.
 func Sanitize(s string) string {
 	return strings.TrimSpace(s)
+}
+
+func (a Auth) denyOrgAccess(w http.ResponseWriter) {
+	msg := "you must be a member of " + a.Cfg.AllowedOrg + " to use this UI"
+	http.Error(w, msg, http.StatusForbidden)
 }
