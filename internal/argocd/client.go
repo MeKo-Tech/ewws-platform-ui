@@ -136,6 +136,7 @@ func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 	}
 
 	req.Header.Set("Accept", "application/json")
+
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}

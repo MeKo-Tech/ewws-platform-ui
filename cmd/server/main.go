@@ -46,6 +46,7 @@ func run() error {
 	reservedCtx, reservedCancel := context.WithTimeout(ctx, 10*time.Second)
 
 	reserved, err := registry.LoadReservedSlugs(reservedCtx, cfg.AppsRegistryRepo)
+
 	reservedCancel()
 
 	if err != nil {
@@ -74,6 +75,7 @@ func run() error {
 
 	go func() {
 		logger.Info("listening", slog.String("addr", addr), slog.String("base_url", cfg.BaseURL))
+
 		serverErr <- server.ListenAndServe()
 	}()
 

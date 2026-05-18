@@ -6,14 +6,13 @@ import (
 	"log/slog"
 	"net/http"
 
-	"golang.org/x/oauth2"
-
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/config"
 	ghclient "github.com/MeKo-Tech/ewws-platform-ui/internal/github"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/csrf"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/views"
+	"golang.org/x/oauth2"
 )
 
 // Claim handles GET + POST /claim.
@@ -40,7 +39,12 @@ func (h Claim) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h Claim) renderForm(w http.ResponseWriter, r *http.Request, errMsg string, prev views.ClaimFormState) {
+func (h Claim) renderForm(
+	w http.ResponseWriter,
+	r *http.Request,
+	errMsg string,
+	prev views.ClaimFormState,
+) {
 	token, err := csrf.MintToken(w, r)
 	if err != nil {
 		h.Logger.Error("mint csrf", slog.Any("err", err))
@@ -140,7 +144,12 @@ func (h Claim) handleSubmit(w http.ResponseWriter, r *http.Request, user *middle
 	http.Redirect(w, r, prResult.URL, http.StatusSeeOther)
 }
 
-func (h Claim) openPR(ctx context.Context, user *middleware.SessionUser, input *registry.ClaimInput, yamlBytes []byte) (*ghclient.PRResult, error) {
+func (h Claim) openPR(
+	ctx context.Context,
+	user *middleware.SessionUser,
+	input *registry.ClaimInput,
+	yamlBytes []byte,
+) (*ghclient.PRResult, error) {
 	if user.Token == "" {
 		return nil, fmt.Errorf("no OAuth token in session")
 	}

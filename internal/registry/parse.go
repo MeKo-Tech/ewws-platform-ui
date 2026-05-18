@@ -21,16 +21,16 @@ import (
 
 // App is a parsed `apps/<slug>.yaml` document.
 type App struct {
-	APIVersion string `yaml:"apiVersion"      json:"apiVersion"`
-	Kind       string `yaml:"kind"            json:"kind"`
-	Slug       string `yaml:"slug"            json:"slug"`
+	APIVersion string `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string `yaml:"kind"       json:"kind"`
+	Slug       string `yaml:"slug"       json:"slug"`
 
-	Owners        Owners              `yaml:"owners"         json:"owners"`
-	Repo          Repo                `yaml:"repo"           json:"repo"`
-	Stages        Stages              `yaml:"stages"         json:"stages"`
-	Resources     Resources           `yaml:"resources"      json:"resources"`
-	Features      Features            `yaml:"features"       json:"features"`
-	CreatedAt     string              `yaml:"created_at"     json:"created_at"`
+	Owners        Owners              `yaml:"owners"                   json:"owners"`
+	Repo          Repo                `yaml:"repo"                     json:"repo"`
+	Stages        Stages              `yaml:"stages"                   json:"stages"`
+	Resources     Resources           `yaml:"resources"                json:"resources"`
+	Features      Features            `yaml:"features"                 json:"features"`
+	CreatedAt     string              `yaml:"created_at"               json:"created_at"`
 	StatusHistory []StatusHistoryItem `yaml:"status_history,omitempty" json:"status_history,omitempty"`
 }
 
@@ -42,11 +42,11 @@ type Owners struct {
 
 // Repo describes the source repository that builds this app.
 type Repo struct {
-	URL                string `yaml:"url"                          json:"url"`
-	DefaultBranch      string `yaml:"default_branch,omitempty"     json:"default_branch,omitempty"`
-	HasBackend         bool   `yaml:"has_backend"                  json:"has_backend"`
-	HasFrontend        bool   `yaml:"has_frontend"                 json:"has_frontend"`
-	DockerfileBackend  string `yaml:"dockerfile_backend,omitempty" json:"dockerfile_backend,omitempty"`
+	URL                string `yaml:"url"                           json:"url"`
+	DefaultBranch      string `yaml:"default_branch,omitempty"      json:"default_branch,omitempty"`
+	HasBackend         bool   `yaml:"has_backend"                   json:"has_backend"`
+	HasFrontend        bool   `yaml:"has_frontend"                  json:"has_frontend"`
+	DockerfileBackend  string `yaml:"dockerfile_backend,omitempty"  json:"dockerfile_backend,omitempty"`
 	DockerfileFrontend string `yaml:"dockerfile_frontend,omitempty" json:"dockerfile_frontend,omitempty"`
 }
 
@@ -58,8 +58,8 @@ type Stages struct {
 
 // Stage is one deployment environment.
 type Stage struct {
-	Host                   string `yaml:"host"                              json:"host"`
-	AutoDeployBranch       string `yaml:"auto_deploy_branch"                json:"auto_deploy_branch"`
+	Host                   string `yaml:"host"                               json:"host"`
+	AutoDeployBranch       string `yaml:"auto_deploy_branch"                 json:"auto_deploy_branch"`
 	RequireManualPromotion bool   `yaml:"require_manual_promotion,omitempty" json:"require_manual_promotion,omitempty"`
 }
 
@@ -71,17 +71,17 @@ type Resources struct {
 
 // ResourceBlock is a single workload's K8s resource block.
 type ResourceBlock struct {
-	MemoryLimit string `yaml:"memory_limit"      json:"memory_limit"`
-	CPULimit    string `yaml:"cpu_limit"         json:"cpu_limit"`
+	MemoryLimit string `yaml:"memory_limit"       json:"memory_limit"`
+	CPULimit    string `yaml:"cpu_limit"          json:"cpu_limit"`
 	Replicas    int    `yaml:"replicas,omitempty" json:"replicas,omitempty"`
 }
 
 // Features is the optional opt-in block (websocket, jobs, auth, ...).
 type Features struct {
-	Websocket     bool           `yaml:"websocket,omitempty"        json:"websocket,omitempty"`
-	ScheduledJobs []ScheduledJob `yaml:"scheduled_jobs,omitempty"   json:"scheduled_jobs,omitempty"`
-	IngressAuth   string         `yaml:"ingress_auth,omitempty"     json:"ingress_auth,omitempty"`
-	CustomDomains []string       `yaml:"custom_domains,omitempty"   json:"custom_domains,omitempty"`
+	Websocket     bool           `yaml:"websocket,omitempty"      json:"websocket,omitempty"`
+	ScheduledJobs []ScheduledJob `yaml:"scheduled_jobs,omitempty" json:"scheduled_jobs,omitempty"`
+	IngressAuth   string         `yaml:"ingress_auth,omitempty"   json:"ingress_auth,omitempty"`
+	CustomDomains []string       `yaml:"custom_domains,omitempty" json:"custom_domains,omitempty"`
 }
 
 // ScheduledJob is one cron-style job.
@@ -93,10 +93,10 @@ type ScheduledJob struct {
 
 // StatusHistoryItem is one entry in the audit trail.
 type StatusHistoryItem struct {
-	At     string `yaml:"at"            json:"at"`
-	Action string `yaml:"action"        json:"action"`
-	By     string `yaml:"by"            json:"by"`
-	PR     int    `yaml:"pr,omitempty"  json:"pr,omitempty"`
+	At     string `yaml:"at"           json:"at"`
+	Action string `yaml:"action"       json:"action"`
+	By     string `yaml:"by"           json:"by"`
+	PR     int    `yaml:"pr,omitempty" json:"pr,omitempty"`
 }
 
 // SlugRegex matches valid claim slugs (see schema).

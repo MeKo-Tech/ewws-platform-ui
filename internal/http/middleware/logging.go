@@ -43,5 +43,6 @@ func (l *loggedWriter) WriteHeader(code int) {
 func (l *loggedWriter) Write(b []byte) (int, error) {
 	n, err := l.ResponseWriter.Write(b)
 	l.bytes += n
+
 	return n, err
 }

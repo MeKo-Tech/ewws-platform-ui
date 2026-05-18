@@ -10,12 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/oauth2"
-	githuboauth "golang.org/x/oauth2/github"
-
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/config"
 	gh "github.com/MeKo-Tech/ewws-platform-ui/internal/github"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
+	"golang.org/x/oauth2"
+	githuboauth "golang.org/x/oauth2/github"
 )
 
 // Auth wires the OAuth2 login / logout / callback routes.
@@ -108,7 +107,11 @@ func (a Auth) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !allowed {
-		http.Error(w, fmt.Sprintf("you must be a member of %s to use this UI", a.Cfg.AllowedOrg), http.StatusForbidden)
+		http.Error(
+			w,
+			fmt.Sprintf("you must be a member of %s to use this UI", a.Cfg.AllowedOrg),
+			http.StatusForbidden,
+		)
 		return
 	}
 

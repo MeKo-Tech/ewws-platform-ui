@@ -45,7 +45,11 @@ func FetchUser(ctx context.Context, httpClient *http.Client) (*UserInfo, error) 
 //
 // We rely on the user's own token + GET /orgs/{org}/teams/{team}/memberships/{user}.
 // 200 with state="active" → member. 404 → not a member.
-func IsTeamMember(ctx context.Context, httpClient *http.Client, org, team, login string) (bool, error) {
+func IsTeamMember(
+	ctx context.Context,
+	httpClient *http.Client,
+	org, team, login string,
+) (bool, error) {
 	if org == "" || team == "" || login == "" {
 		return false, errors.New("github: org/team/login required")
 	}
