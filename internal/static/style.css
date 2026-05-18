@@ -1,0 +1,313 @@
+/* ewws-platform-ui — plain CSS, no framework. */
+
+:root {
+  --meko-blue: #0a4d8c;
+  --meko-blue-dark: #073d6f;
+  --meko-blue-light: #e7f0fa;
+  --text: #1b1f23;
+  --muted: #586069;
+  --border: #d0d7de;
+  --bg: #ffffff;
+  --bg-soft: #f6f8fa;
+  --ok: #1f883d;
+  --warn: #bf8700;
+  --error: #cf222e;
+  --neutral: #57606a;
+  --radius: 6px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg-soft);
+  line-height: 1.5;
+}
+
+a { color: var(--meko-blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code, pre {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+pre {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+/* Header */
+
+.site-header {
+  background: var(--meko-blue);
+  color: #ffffff;
+  padding: 0.8rem 0;
+}
+
+.site-header a { color: #ffffff; }
+.site-header__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.brand__mark {
+  background: #ffffff;
+  color: var(--meko-blue);
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.site-nav {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.site-nav .user { font-size: 0.9rem; opacity: 0.95; }
+.site-nav .badge--admin {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #ffffff;
+}
+
+.link-btn {
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.logout { display: inline; margin: 0; }
+
+/* Footer */
+
+.site-footer {
+  color: var(--muted);
+  text-align: center;
+  padding: 2rem 1rem 3rem;
+}
+
+/* Hero */
+
+.hero {
+  padding: 2rem 0 1rem;
+}
+
+.hero h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.6rem;
+}
+
+.hero p { color: var(--muted); margin: 0; }
+
+/* Apps table */
+
+.apps,
+.resources {
+  width: 100%;
+  border-collapse: collapse;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 2rem;
+}
+
+.apps th,
+.apps td,
+.resources th,
+.resources td {
+  text-align: left;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.apps tbody tr:last-child td,
+.resources tbody tr:last-child td { border-bottom: 0; }
+
+.apps thead th,
+.resources thead th {
+  background: var(--bg-soft);
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.apps .empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 2.5rem;
+}
+
+/* Badges */
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--text);
+}
+
+.badge--ok      { color: var(--ok);      border-color: var(--ok);      background: #ddf4e4; }
+.badge--warn    { color: var(--warn);    border-color: var(--warn);    background: #fff8c5; }
+.badge--error   { color: var(--error);   border-color: var(--error);   background: #ffebe9; }
+.badge--neutral { color: var(--neutral); border-color: var(--neutral); background: #f0f0f0; }
+.badge--unknown { color: var(--muted);   border-color: var(--border);  background: #ffffff; }
+
+/* Cards */
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+
+.card header h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1rem;
+  text-transform: capitalize;
+}
+
+.card dl {
+  margin: 1rem 0 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1rem;
+}
+
+.card dt { color: var(--muted); font-size: 0.85rem; }
+.card dd { margin: 0; }
+
+/* Claim form */
+
+.claim-form {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.claim-form fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 1.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.claim-form fieldset:first-of-type { border-top: 0; padding-top: 0; }
+
+.claim-form legend {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+.claim-form label {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 0.7rem;
+}
+
+.claim-form input[type="text"],
+.claim-form input[type="url"],
+.claim-form select {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #ffffff;
+  font: inherit;
+  margin-top: 0.2rem;
+}
+
+.claim-form input[type="checkbox"] {
+  margin-right: 0.4rem;
+}
+
+.claim-form small {
+  display: block;
+  color: var(--muted);
+  margin-top: 0.2rem;
+}
+
+.claim-form .row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.claim-form .primary {
+  background: var(--meko-blue);
+  color: #ffffff;
+  border: 0;
+  padding: 0.7rem 1.2rem;
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.claim-form .primary:hover { background: var(--meko-blue-dark); }
+
+.alert {
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius);
+  margin: 0 0 1.25rem;
+  font-size: 0.95rem;
+}
+
+.alert--error { background: #ffebe9; color: var(--error); border: 1px solid var(--error); }
+
+.muted { color: var(--muted); }
+
+.yaml h2 { margin-top: 1.5rem; }
+.resource-tree h2 { margin-top: 0; }

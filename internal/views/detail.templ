@@ -1,0 +1,83 @@
+package views
+
+import (
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/argocd"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
+)
+
+// DetailProps holds the data rendered by the /app/<slug> page.
+type DetailProps struct {
+	App     *registry.App
+	Staging *argocd.Application
+	Prod    *argocd.Application
+	Tree    *argocd.ResourceTree
+	YAML    string
+}
+
+templ Detail(page PageProps, props DetailProps) {
+	@Layout(page) {
+		if props.App == nil {
+			<section class="hero">
+				<h1>Not found</h1>
+				<p>No app with that slug is registered.</p>
+			</section>
+		} else {
+			<section class="hero">
+				<h1>{ props.App.Slug }</h1>
+				<p><a href="/">&larr; back to all apps</a></p>
+			</section>
+			<section class="card-grid">
+				@stageCard("staging", props.App.Stages.Staging.Host, props.Staging)
+				@stageCard("prod",    props.App.Stages.Prod.Host,    props.Prod)
+			</section>
+			<section class="resource-tree">
+				<h2>Resources</h2>
+				if props.Tree == nil || len(props.Tree.Nodes) == 0 {
+					<p class="muted">No resource tree yet.</p>
+				} else {
+					<table class="resources">
+						<thead>
+							<tr>
+								<th>Kind</th><th>Name</th><th>Namespace</th><th>Health</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, n := range props.Tree.Nodes {
+								<tr>
+									<td><code>{ n.Kind }</code></td>
+									<td>{ n.Name }</td>
+									<td>{ n.Namespace }</td>
+									<td>@HealthBadge(n.Health.Status)</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</section>
+			<section class="yaml">
+				<h2>Registry entry</h2>
+				<pre><code>{ props.YAML }</code></pre>
+			</section>
+		}
+	}
+}
+
+templ stageCard(name, host string, app *argocd.Application) {
+	<article class="card">
+		<header>
+			<h2>{ name }</h2>
+			<code>{ host }</code>
+		</header>
+		if app == nil {
+			<p class="muted">Not deployed.</p>
+		} else {
+			<dl>
+				<dt>Sync</dt>     <dd>@SyncBadge(app.Status.Sync.Status)</dd>
+				<dt>Health</dt>   <dd>@HealthBadge(app.Status.Health.Status)</dd>
+				<dt>Revision</dt> <dd><code>{ app.Spec.Source.TargetRevision }</code></dd>
+				<dt>Path</dt>     <dd><code>{ app.Spec.Source.Path }</code></dd>
+				<dt>Namespace</dt><dd><code>{ app.Spec.Destination.Namespace }</code></dd>
+			</dl>
+		}
+	</article>
+}

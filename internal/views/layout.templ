@@ -1,0 +1,66 @@
+package views
+
+// SessionUser is what handlers inject for header rendering.
+type SessionUser struct {
+	Login   string
+	Name    string
+	IsAdmin bool
+}
+
+// PageProps is the data common to every full-page render.
+type PageProps struct {
+	Title string
+	User  *SessionUser
+}
+
+templ Layout(props PageProps) {
+	<!doctype html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ props.Title } — MeKo Platform</title>
+			<link rel="stylesheet" href="/static/style.css"/>
+			<script src="/static/htmx.min.js" defer></script>
+		</head>
+		<body>
+			@header(props.User)
+			<main class="container">
+				{ children... }
+			</main>
+			<footer class="site-footer">
+				<small>ewws-platform-ui · <a href="https://github.com/MeKo-Tech/ewws-apps-registry">apps registry</a></small>
+			</footer>
+		</body>
+	</html>
+}
+
+templ header(user *SessionUser) {
+	<header class="site-header">
+		<div class="container site-header__inner">
+			<a class="brand" href="/">
+				<span class="brand__mark">MeKo</span>
+				<span class="brand__name">Platform</span>
+			</a>
+			<nav class="site-nav">
+				<a href="/">Apps</a>
+				if user != nil {
+					<a href="/claim">Claim</a>
+				}
+				if user != nil {
+					<span class="user">
+						{ user.Login }
+						if user.IsAdmin {
+							<span class="badge badge--admin">admin</span>
+						}
+					</span>
+					<form method="post" action="/auth/logout" class="logout">
+						<button type="submit" class="link-btn">log out</button>
+					</form>
+				} else {
+					<a href="/auth/login" class="login">log in with GitHub</a>
+				}
+			</nav>
+		</div>
+	</header>
+}

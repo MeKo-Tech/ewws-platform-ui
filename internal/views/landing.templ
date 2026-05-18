@@ -1,0 +1,97 @@
+package views
+
+import (
+	"fmt"
+
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/argocd"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
+)
+
+// LandingRow bundles one registry app with its derived Argo CD status.
+type LandingRow struct {
+	App    registry.App
+	Status AppStatus
+}
+
+// AppStatus is the cell rendered by /partials/app-status/<slug>.
+type AppStatus struct {
+	Sync       string
+	Health     string
+	LastDeploy string
+	StageName  string // e.g. "staging" / "prod"
+	Found      bool
+}
+
+// FromArgo derives an AppStatus from an *argocd.Application.
+func StatusFromArgo(app *argocd.Application, stage string) AppStatus {
+	if app == nil {
+		return AppStatus{StageName: stage}
+	}
+
+	out := AppStatus{
+		Sync:      app.Status.Sync.Status,
+		Health:    app.Status.Health.Status,
+		StageName: stage,
+		Found:     true,
+	}
+
+	if !app.Status.OperationState.FinishedAt.IsZero() {
+		out.LastDeploy = app.Status.OperationState.FinishedAt.Format("2006-01-02 15:04")
+	}
+
+	return out
+}
+
+templ Landing(props PageProps, rows []LandingRow) {
+	@Layout(props) {
+		<section class="hero">
+			<h1>Vibe-Tenant Apps</h1>
+			<p>
+				Status of every claimed subdomain. Data lives in
+				<a href="https://github.com/MeKo-Tech/ewws-apps-registry"><code>ewws-apps-registry</code></a>
+				and Argo CD; this page just reads it.
+			</p>
+		</section>
+		<table class="apps">
+			<thead>
+				<tr>
+					<th scope="col">Slug</th>
+					<th scope="col">Owners</th>
+					<th scope="col">Host (prod)</th>
+					<th scope="col">Sync</th>
+					<th scope="col">Health</th>
+					<th scope="col">Last deploy</th>
+				</tr>
+			</thead>
+			<tbody>
+				if len(rows) == 0 {
+					<tr><td colspan="6" class="empty">No apps claimed yet.</td></tr>
+				}
+				for _, row := range rows {
+					@landingRow(row)
+				}
+			</tbody>
+		</table>
+	}
+}
+
+templ landingRow(row LandingRow) {
+	<tr id={ "row-" + row.App.Slug }>
+		<td><a href={ templ.URL(fmt.Sprintf("/app/%s", row.App.Slug)) }>{ row.App.Slug }</a></td>
+		<td>
+			<small>tech: { row.App.Owners.Technical }</small><br/>
+			<small>org: { row.App.Owners.Organizational }</small>
+		</td>
+		<td><code>{ row.App.Stages.Prod.Host }</code></td>
+		<td
+			hx-get={ fmt.Sprintf("/partials/app-status/%s", row.App.Slug) }
+			hx-trigger="load, every 30s"
+			hx-swap="outerHTML"
+			class="status-cell"
+		>
+			@StatusCell(row.Status)
+		</td>
+		<td class="status-cell">@HealthBadge(row.Status.Health)</td>
+		<td><time>{ row.Status.LastDeploy }</time></td>
+	</tr>
+}

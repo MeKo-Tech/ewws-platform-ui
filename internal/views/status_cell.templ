@@ -1,0 +1,39 @@
+package views
+
+// StatusCell is the HTMX-swap target for sync status.
+// Rendered standalone by /partials/app-status/<slug>.
+templ StatusCell(s AppStatus) {
+	<td class="status-cell" data-status={ s.Sync }>
+		@SyncBadge(s.Sync)
+	</td>
+}
+
+templ SyncBadge(state string) {
+	if state == "Synced" {
+		<span class="badge badge--ok">Synced</span>
+	} else if state == "OutOfSync" {
+		<span class="badge badge--warn">OutOfSync</span>
+	} else if state == "" {
+		<span class="badge badge--unknown">—</span>
+	} else {
+		<span class="badge badge--unknown">{ state }</span>
+	}
+}
+
+templ HealthBadge(state string) {
+	if state == "Healthy" {
+		<span class="badge badge--ok">Healthy</span>
+	} else if state == "Progressing" {
+		<span class="badge badge--warn">Progressing</span>
+	} else if state == "Degraded" {
+		<span class="badge badge--error">Degraded</span>
+	} else if state == "Suspended" {
+		<span class="badge badge--neutral">Suspended</span>
+	} else if state == "Missing" {
+		<span class="badge badge--error">Missing</span>
+	} else if state == "" {
+		<span class="badge badge--unknown">—</span>
+	} else {
+		<span class="badge badge--unknown">{ state }</span>
+	}
+}

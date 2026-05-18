@@ -1,0 +1,163 @@
+package views
+
+// ClaimProps drives the claim form rendering.
+type ClaimProps struct {
+	DefaultOwner   string
+	MemoryOptions  []string
+	CPUOptions     []string
+	Error          string
+	CSRFToken      string
+	PreviousValues ClaimFormState
+}
+
+// ClaimFormState holds the last-submitted values so we can re-render on validation errors.
+type ClaimFormState struct {
+	Slug                string
+	RepoURL             string
+	HasBackend          bool
+	HasFrontend         bool
+	BackendImageRepo    string
+	BackendImageTag     string
+	FrontendImageRepo   string
+	FrontendImageTag    string
+	BackendMemoryLimit  string
+	BackendCPULimit     string
+	FrontendMemoryLimit string
+	FrontendCPULimit    string
+	StagingHost         string
+	ProdHost            string
+}
+
+templ Claim(page PageProps, props ClaimProps) {
+	@Layout(page) {
+		<section class="hero">
+			<h1>Claim a subdomain</h1>
+			<p>
+				This opens a pull request against
+				<a href="https://github.com/MeKo-Tech/ewws-apps-registry"><code>ewws-apps-registry</code></a>
+				as your GitHub user. A platform admin still has to merge it.
+			</p>
+		</section>
+		if props.Error != "" {
+			<div class="alert alert--error" role="alert">{ props.Error }</div>
+		}
+		<form method="post" action="/claim" class="claim-form">
+			<input type="hidden" name="csrf" value={ props.CSRFToken }/>
+			<fieldset>
+				<legend>Identity</legend>
+				<label>
+					Slug
+					<input
+						type="text"
+						name="slug"
+						required
+						pattern="^[a-z][a-z0-9-]{2,30}[a-z0-9]$"
+						placeholder="my-app"
+						value={ props.PreviousValues.Slug }
+					/>
+					<small>Lowercase, 4–32 chars, must match the file in <code>apps/&lt;slug&gt;.yaml</code>.</small>
+				</label>
+			</fieldset>
+			<fieldset>
+				<legend>Source repo</legend>
+				<label>
+					Repository URL
+					<input type="url" name="repo_url" required placeholder="https://github.com/MeKo-Tech/my-app" value={ props.PreviousValues.RepoURL }/>
+				</label>
+				<label>
+					<input type="checkbox" name="has_backend" value="1" checked?={ defaultTrueIfNew(props.PreviousValues.Slug, props.PreviousValues.HasBackend) }/>
+					Has backend service
+				</label>
+				<label>
+					<input type="checkbox" name="has_frontend" value="1" checked?={ defaultTrueIfNew(props.PreviousValues.Slug, props.PreviousValues.HasFrontend) }/>
+					Has frontend service
+				</label>
+			</fieldset>
+			<fieldset>
+				<legend>Container images</legend>
+				<div class="row">
+					<label>
+						Backend image (repository)
+						<input type="text" name="backend_image_repo" placeholder="ghcr.io/meko-tech/my-app-backend" value={ props.PreviousValues.BackendImageRepo }/>
+					</label>
+					<label>
+						Backend tag
+						<input type="text" name="backend_image_tag" placeholder="latest" value={ props.PreviousValues.BackendImageTag }/>
+					</label>
+				</div>
+				<div class="row">
+					<label>
+						Frontend image (repository)
+						<input type="text" name="frontend_image_repo" placeholder="ghcr.io/meko-tech/my-app-frontend" value={ props.PreviousValues.FrontendImageRepo }/>
+					</label>
+					<label>
+						Frontend tag
+						<input type="text" name="frontend_image_tag" placeholder="latest" value={ props.PreviousValues.FrontendImageTag }/>
+					</label>
+				</div>
+			</fieldset>
+			<fieldset>
+				<legend>Resources</legend>
+				<div class="row">
+					<label>
+						Backend memory limit
+						@selectField("backend_memory_limit", props.MemoryOptions, props.PreviousValues.BackendMemoryLimit, "256Mi")
+					</label>
+					<label>
+						Backend CPU limit
+						@selectField("backend_cpu_limit", props.CPUOptions, props.PreviousValues.BackendCPULimit, "250m")
+					</label>
+				</div>
+				<div class="row">
+					<label>
+						Frontend memory limit
+						@selectField("frontend_memory_limit", props.MemoryOptions, props.PreviousValues.FrontendMemoryLimit, "128Mi")
+					</label>
+					<label>
+						Frontend CPU limit
+						@selectField("frontend_cpu_limit", props.CPUOptions, props.PreviousValues.FrontendCPULimit, "100m")
+					</label>
+				</div>
+			</fieldset>
+			<fieldset>
+				<legend>Hosts</legend>
+				<label>
+					Staging host
+					<input type="text" name="staging_host" required placeholder="my-app.staging.apps.meko.work" value={ props.PreviousValues.StagingHost }/>
+				</label>
+				<label>
+					Prod host
+					<input type="text" name="prod_host" required placeholder="my-app.apps.meko.work" value={ props.PreviousValues.ProdHost }/>
+				</label>
+			</fieldset>
+			<fieldset>
+				<legend>Owners</legend>
+				<p>You ({ props.DefaultOwner }) will be set as both technical and organizational owner. Edit the YAML in the PR if you want different values.</p>
+			</fieldset>
+			<button type="submit" class="primary">Open pull request</button>
+		</form>
+	}
+}
+
+templ selectField(name string, options []string, current, fallback string) {
+	<select name={ name }>
+		for _, opt := range options {
+			if (current == opt) || (current == "" && opt == fallback) {
+				<option value={ opt } selected>{ opt }</option>
+			} else {
+				<option value={ opt }>{ opt }</option>
+			}
+		}
+	</select>
+}
+
+// defaultTrueIfNew picks "checked" semantics:
+// when the user hasn't submitted yet (Slug empty), default to TRUE.
+// On re-render after error, honour the user's actual choice.
+func defaultTrueIfNew(slug string, current bool) bool {
+	if slug == "" {
+		return true
+	}
+
+	return current
+}
