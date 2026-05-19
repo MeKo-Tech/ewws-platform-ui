@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/argocd"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/compliance"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/config"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/handlers"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
@@ -16,11 +17,12 @@ import (
 
 // Deps bundles everything the router needs.
 type Deps struct {
-	Cfg          *config.Config
-	Logger       *slog.Logger
-	Argo         *argocd.Client
-	SessionStore *middleware.SessionStore
-	Reserved     *registry.ReservedSlugs
+	Cfg             *config.Config
+	Logger          *slog.Logger
+	Argo            *argocd.Client
+	SessionStore    *middleware.SessionStore
+	Reserved        *registry.ReservedSlugs
+	ComplianceStore *compliance.Store
 }
 
 // NewRouter builds the *http.ServeMux + middleware chain.
@@ -76,5 +78,9 @@ func registerPartials(mux *http.ServeMux, d Deps) {
 		Cfg:    d.Cfg,
 		Argo:   d.Argo,
 		Logger: d.Logger,
+	})
+	mux.Handle("GET /partials/compliance/{slug}", handlers.PartialCompliance{
+		Cfg:   d.Cfg,
+		Store: d.ComplianceStore,
 	})
 }

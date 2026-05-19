@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 // Config is the resolved configuration after LoadFromEnv.
@@ -27,6 +28,16 @@ type Config struct {
 	AllowedOrg         string
 	AdminTeam          string
 	LogFormat          string // "json" or "text"
+
+	// DBPath is the on-disk location of the SQLite file backing the
+	// compliance scanner. The chart mounts a PVC at /var/data so the
+	// file survives pod restarts. Empty disables persistence (in-memory
+	// only — fine for unit tests, not for production).
+	DBPath string
+
+	// ComplianceScanInterval — how often the periodic scanner walks the
+	// registry. 0 disables the scanner entirely.
+	ComplianceScanInterval time.Duration
 }
 
 // LoadFromEnv reads configuration from the environment.
@@ -51,6 +62,15 @@ func LoadFromEnv() (*Config, error) {
 	c.GitHubClientSecret = os.Getenv("GITHUB_CLIENT_SECRET")
 	c.GitHubAPIToken = os.Getenv("GITHUB_API_TOKEN")
 	c.ArgoCDToken = os.Getenv("ARGOCD_TOKEN")
+
+	c.DBPath = getenvDefault("DB_PATH", "/var/data/platform-ui.db")
+
+	scanIntervalStr := getenvDefault("COMPLIANCE_SCAN_INTERVAL", "1h")
+	scanInterval, err := time.ParseDuration(scanIntervalStr)
+	if err != nil {
+		return nil, fmt.Errorf("COMPLIANCE_SCAN_INTERVAL: %w", err)
+	}
+	c.ComplianceScanInterval = scanInterval
 
 	secret := os.Getenv("SESSION_SECRET")
 	if secret == "" {
