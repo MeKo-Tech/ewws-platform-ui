@@ -6,7 +6,7 @@
 # chart historically pins `runAsUser: 1000` — override to 65532 in values
 # before deploying, otherwise the kernel will reject the process.
 
-ARG GO_VERSION=1.24
+ARG GO_VERSION=1.25
 ARG TEMPL_VERSION=v0.3.943
 ARG ALPINE_VERSION=3.20
 
