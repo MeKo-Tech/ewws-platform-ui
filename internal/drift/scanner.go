@@ -48,6 +48,7 @@ func (s *Scanner) RunOnce(ctx context.Context) (int, error) {
 				"err",
 				err,
 			)
+
 			continue
 		}
 
