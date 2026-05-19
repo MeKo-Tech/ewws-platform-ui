@@ -2,105 +2,674 @@ package views
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
 
-	"github.com/MeKo-Tech/ewws-platform-ui/internal/argocd"
-	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/compliance"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/drift"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/metrics"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/status"
 )
 
-// LandingRow bundles one registry app with its derived Argo CD status.
-type LandingRow struct {
-	App    registry.App
-	Status AppStatus
-}
-
-// AppStatus is the cell rendered by /partials/app-status/<slug>.
-type AppStatus struct {
-	Sync       string
-	Health     string
-	LastDeploy string
-	StageName  string // e.g. "staging" / "prod"
-	Found      bool
-}
-
-// FromArgo derives an AppStatus from an *argocd.Application.
-func StatusFromArgo(app *argocd.Application, stage string) AppStatus {
-	if app == nil {
-		return AppStatus{StageName: stage}
+// activityLabel buckets a stage into a coarse label based on the default
+// thresholds. The frontend JS recomputes from localStorage when the user
+// has overridden any threshold; the server-side label is just the
+// initial paint so the page is useful without JS.
+func activityLabel(s status.Stage) string {
+	if s.Metrics == nil {
+		return "unknown"
 	}
 
-	out := AppStatus{
-		Sync:      app.Status.Sync.Status,
-		Health:    app.Status.Health.Status,
-		StageName: stage,
-		Found:     true,
+	m := s.Metrics
+
+	if m.ErrorRate5xx > 0.05 || m.Restarts24h > 10 {
+		return "unhealthy"
 	}
 
-	if !app.Status.OperationState.FinishedAt.IsZero() {
-		out.LastDeploy = app.Status.OperationState.FinishedAt.Format("2006-01-02 15:04")
+	switch {
+	case m.Requests24h >= 100:
+		return "active"
+	case m.Requests7d >= 100:
+		return "quiet"
+	case m.LastRequestAt != nil && time.Since(*m.LastRequestAt) < 30*24*time.Hour:
+		return "idle"
+	default:
+		return "dormant"
 	}
-
-	return out
 }
 
-templ Landing(props PageProps, rows []LandingRow) {
+func activityWord(label string) string {
+	return map[string]string{
+		"active":    "aktiv",
+		"quiet":     "ruhig",
+		"idle":      "idle",
+		"dormant":   "verwaist",
+		"unhealthy": "ungesund",
+		"unknown":   "—",
+	}[label]
+}
+
+// fmtCount renders an int64 with k/M suffixes once it gets large.
+func fmtCount(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	default:
+		return strconv.FormatInt(n, 10)
+	}
+}
+
+// fmtAgo renders a relative duration ("3 min", "2 d", "—" for nil).
+func fmtAgo(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return "—"
+	}
+
+	d := time.Since(*t)
+
+	switch {
+	case d < time.Minute:
+		return "jetzt"
+	case d < time.Hour:
+		return fmt.Sprintf("%d min", int(d/time.Minute))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d h", int(d/time.Hour))
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("%d d", int(d/(24*time.Hour)))
+	default:
+		return fmt.Sprintf("%d mo", int(d/(30*24*time.Hour)))
+	}
+}
+
+// fmtPct renders a 0..1 float as a percent. 0 → "0%", 0.034 → "3.4%".
+func fmtPct(f float64) string {
+	if f == 0 {
+		return "0%"
+	}
+
+	if f < 0.01 {
+		return fmt.Sprintf("%.2f%%", f*100)
+	}
+
+	return fmt.Sprintf("%.1f%%", f*100)
+}
+
+// fmtBytes — 256Mi, 1.2Gi …
+func fmtBytes(b int64) string {
+	const (
+		Ki = 1024
+		Mi = Ki * 1024
+		Gi = Mi * 1024
+	)
+
+	switch {
+	case b >= Gi:
+		return fmt.Sprintf("%.1fGi", float64(b)/Gi)
+	case b >= Mi:
+		return fmt.Sprintf("%dMi", b/Mi)
+	case b >= Ki:
+		return fmt.Sprintf("%dKi", b/Ki)
+	default:
+		return strconv.FormatInt(b, 10)
+	}
+}
+
+// memHeadroomPct returns the fraction of the limit that is FREE
+// (0..1; 1.0 = entirely unused). NaN-safe.
+func memHeadroomPct(m *metrics.Snapshot) float64 {
+	if m == nil || m.MemoryLimitBytes == 0 {
+		return 0
+	}
+
+	used := float64(m.MemoryUsedBytes)
+	lim := float64(m.MemoryLimitBytes)
+
+	return (lim - used) / lim
+}
+
+// sparkline turns a series of int64 counts into a single inline SVG
+// polyline. Always 100x20 viewBox so styling can stretch it via CSS.
+func sparklineSVG(values []int64) string {
+	if len(values) == 0 {
+		return ""
+	}
+
+	var maxV int64
+	for _, v := range values {
+		if v > maxV {
+			maxV = v
+		}
+	}
+
+	if maxV == 0 {
+		return ""
+	}
+
+	var pts strings.Builder
+	for i, v := range values {
+		x := float64(i) / float64(len(values)-1) * 100
+		y := 20 - float64(v)/float64(maxV)*18
+
+		fmt.Fprintf(&pts, "%.1f,%.1f ", x, y)
+	}
+
+	return strings.TrimSpace(pts.String())
+}
+
+// driftLabel renders the per-component drift cell.
+func driftLabel(d drift.Snapshot) string {
+	if d.StagingTag == "" || d.ProdTag == "" {
+		return "—"
+	}
+
+	if d.StagingTag == d.ProdTag {
+		return "= gleich"
+	}
+
+	if d.CommitsAhead == 0 {
+		return "verschieden"
+	}
+
+	return fmt.Sprintf("+%d", d.CommitsAhead)
+}
+
+// snapshotOrZero — small helpers to keep the templates flat. templ
+// doesn't have inline ternaries; we compute these in Go and just
+// interpolate the string.
+func snapshotReq24h(m *metrics.Snapshot) string {
+	if m == nil {
+		return "—"
+	}
+
+	return fmtCount(m.Requests24h)
+}
+
+func snapshotReq7d(m *metrics.Snapshot) string {
+	if m == nil {
+		return "—"
+	}
+
+	return fmtCount(m.Requests7d)
+}
+
+func snapshotLastReq(m *metrics.Snapshot) string {
+	if m == nil {
+		return "—"
+	}
+
+	return fmtAgo(m.LastRequestAt)
+}
+
+func snapshot5xx(m *metrics.Snapshot) string {
+	if m == nil {
+		return "—"
+	}
+
+	return fmtPct(m.ErrorRate5xx)
+}
+
+func snapshotRestarts(m *metrics.Snapshot) string {
+	if m == nil {
+		return "—"
+	}
+
+	return strconv.FormatInt(m.Restarts24h, 10)
+}
+
+func snapshotMemHeadroom(m *metrics.Snapshot) string {
+	if m == nil {
+		return "—"
+	}
+
+	return fmtPct(memHeadroomPct(m))
+}
+
+func deployAgo(t *time.Time) string {
+	if t == nil {
+		return "—"
+	}
+
+	return fmtAgo(t)
+}
+
+// complianceTotals returns (pass, fail, error).
+func complianceTotals(rows []compliance.CheckResult) (int, int, int) {
+	var p, f, e int
+
+	for _, r := range rows {
+		switch r.Status {
+		case compliance.StatusPass:
+			p++
+		case compliance.StatusFail:
+			f++
+		case compliance.StatusError:
+			e++
+		}
+	}
+
+	return p, f, e
+}
+
+// tenantAttrs returns the data-* attributes for one Tenant. The
+// frontend JS reads these for sorting and activity-score recomputation.
+// All numeric fields use a -1 sentinel for "not collected yet" so JS
+// can sort missing-data rows to the bottom regardless of direction.
+func tenantAttrs(t status.Tenant) templ.Attributes {
+	stMet := t.Stages["staging"].Metrics
+	prMet := t.Stages["prod"].Metrics
+
+	attrs := templ.Attributes{
+		"data-slug":              t.Slug,
+		"data-staging-host":      t.Stages["staging"].Host,
+		"data-prod-host":         t.Stages["prod"].Host,
+		"data-prod-sync":         t.Stages["prod"].SyncStatus,
+		"data-prod-health":       t.Stages["prod"].HealthStatus,
+		"data-prod-activity":     activityLabel(t.Stages["prod"]),
+		"data-staging-activity":  activityLabel(t.Stages["staging"]),
+		"data-prod-req24h":       "-1",
+		"data-prod-req7d":        "-1",
+		"data-prod-last-request": "-1",
+		"data-prod-5xx":          "0",
+		"data-prod-restarts24h":  "0",
+		"data-prod-mem-headroom": "0",
+		"data-staging-req24h":    "-1",
+	}
+
+	if prMet != nil {
+		attrs["data-prod-req24h"] = strconv.FormatInt(prMet.Requests24h, 10)
+		attrs["data-prod-req7d"] = strconv.FormatInt(prMet.Requests7d, 10)
+		attrs["data-prod-5xx"] = fmt.Sprintf("%.4f", prMet.ErrorRate5xx)
+		attrs["data-prod-restarts24h"] = strconv.FormatInt(prMet.Restarts24h, 10)
+		attrs["data-prod-mem-headroom"] = fmt.Sprintf("%.4f", memHeadroomPct(prMet))
+
+		if prMet.LastRequestAt != nil {
+			attrs["data-prod-last-request"] = strconv.FormatInt(prMet.LastRequestAt.Unix(), 10)
+		}
+	}
+
+	if stMet != nil {
+		attrs["data-staging-req24h"] = strconv.FormatInt(stMet.Requests24h, 10)
+	}
+
+	return attrs
+}
+
+templ Landing(props PageProps, tenants []status.Tenant) {
 	@Layout(props) {
 		<section class="hero">
 			<h1>Vibe-Tenant Apps</h1>
 			<p>
-				Status of every claimed subdomain. Data lives in
-				<a href="https://github.com/MeKo-Tech/ewws-apps-registry"><code>ewws-apps-registry</code></a>
-				and Argo CD; this page just reads it.
+				Status of every claimed subdomain. Read-only mirror of
+				<a href="https://github.com/MeKo-Tech/ewws-apps-registry"><code>ewws-apps-registry</code></a>,
+				Argo CD, Prometheus, GitHub.
 			</p>
 		</section>
-		<table class="apps">
-			<thead>
-				<tr>
-					<th scope="col">Slug</th>
-					<th scope="col">Owners</th>
-					<th scope="col">Host (prod)</th>
-					<th scope="col">Sync</th>
-					<th scope="col">Health</th>
-					<th scope="col" title="Repo-bootstrap compliance: pr-title workflow, release-please, branch protection">Compliance</th>
-					<th scope="col">Last deploy</th>
-				</tr>
-			</thead>
-			<tbody>
-				if len(rows) == 0 {
-					<tr><td colspan="7" class="empty">No apps claimed yet.</td></tr>
-				}
-				for _, row := range rows {
-					@landingRow(row)
-				}
-			</tbody>
-		</table>
+		@dashboardToolbar()
+		@thresholdSettings()
+		<div id="dashboard" data-view="cards">
+			@cardsView(tenants)
+			@tableView(tenants)
+		</div>
+		<script src="/static/dashboard.js" defer></script>
 	}
 }
 
-templ landingRow(row LandingRow) {
-	<tr id={ "row-" + row.App.Slug }>
-		<td><a href={ templ.URL(fmt.Sprintf("/app/%s", row.App.Slug)) }>{ row.App.Slug }</a></td>
-		<td>
-			<small>tech: { row.App.Owners.Technical }</small><br/>
-			<small>org: { row.App.Owners.Organizational }</small>
+templ dashboardToolbar() {
+	<section class="toolbar" aria-label="Dashboard-Steuerung">
+		<div class="view-toggle" role="tablist" aria-label="Ansicht">
+			<button class="view-btn is-active" data-view="cards" type="button">Karten</button>
+			<button class="view-btn" data-view="table" type="button">Tabelle</button>
+		</div>
+		<details class="column-toggle">
+			<summary>Spalten</summary>
+			<div class="columns">
+				<label><input type="checkbox" data-column="owners" checked/> Owner</label>
+				<label><input type="checkbox" data-column="hosts" checked/> Hosts</label>
+				<label><input type="checkbox" data-column="activity" checked/> Aktivität</label>
+				<label><input type="checkbox" data-column="traffic" checked/> Traffic 24h/7d</label>
+				<label><input type="checkbox" data-column="last-request" checked/> Letzter Request</label>
+				<label><input type="checkbox" data-column="sparkline" checked/> Trend</label>
+				<label><input type="checkbox" data-column="drift" checked/> Drift</label>
+				<label><input type="checkbox" data-column="health" checked/> Health</label>
+				<label><input type="checkbox" data-column="restarts"/> Restarts</label>
+				<label><input type="checkbox" data-column="5xx"/> 5xx</label>
+				<label><input type="checkbox" data-column="memory"/> Memory</label>
+				<label><input type="checkbox" data-column="compliance" checked/> Compliance</label>
+				<label><input type="checkbox" data-column="last-deploy"/> Last deploy</label>
+			</div>
+		</details>
+		<details class="threshold-settings-toggle">
+			<summary>⚙ Aktivitäts-Schwellen</summary>
+			<p>
+				<small>
+					Klassifikation pro Stage. Werte gelten für „prod" für die Auto-Sortierung;
+					alle Karten zeigen ihre Stage-spezifischen Labels.
+				</small>
+			</p>
+			<div class="thresholds" id="thresholds-panel">
+				<label>
+					<span>≥ Requests/24h ⇒ <strong>aktiv</strong></span>
+					<input type="number" min="0" data-threshold="active-req24h" value="100"/>
+				</label>
+				<label>
+					<span>≥ Requests/7d ⇒ <strong>ruhig</strong></span>
+					<input type="number" min="0" data-threshold="quiet-req7d" value="100"/>
+				</label>
+				<label>
+					<span>Last access &lt; (Tage) ⇒ <strong>idle</strong></span>
+					<input type="number" min="0" data-threshold="idle-days" value="30"/>
+				</label>
+				<label>
+					<span>5xx-Rate &gt; (%) ⇒ <strong>ungesund</strong></span>
+					<input type="number" min="0" step="0.1" data-threshold="unhealthy-5xx-pct" value="5"/>
+				</label>
+				<label>
+					<span>Restarts/24h &gt; ⇒ <strong>ungesund</strong></span>
+					<input type="number" min="0" data-threshold="unhealthy-restarts" value="10"/>
+				</label>
+				<button type="button" id="reset-thresholds">Zurücksetzen</button>
+			</div>
+		</details>
+	</section>
+}
+
+templ thresholdSettings() {
+	<noscript>
+		<p class="warn">
+			JavaScript ist deaktiviert — Sortierung und FE-Schwellen sind deaktiviert.
+			Die Server-Default-Klassifikation wird trotzdem angezeigt.
+		</p>
+	</noscript>
+}
+
+// --- cards view -----------------------------------------------------------
+
+templ cardsView(tenants []status.Tenant) {
+	<div class="cards-view">
+		if len(tenants) == 0 {
+			<p class="empty">Noch keine Tenants geclaimt.</p>
+		}
+		for _, t := range tenants {
+			@tenantCard(t)
+		}
+	</div>
+}
+
+templ tenantCard(t status.Tenant) {
+	<details class="tenant-card" { tenantAttrs(t)... }>
+		<summary class="tenant-card__head">
+			<span class="tenant-card__slug">{ t.Slug }</span>
+			@activityBadge(t.Stages["prod"], "prod")
+			@activityBadge(t.Stages["staging"], "staging")
+			@driftSummary(t.Drift)
+			@complianceBadge(t.Compliance)
+			<span class="tenant-card__hint">▾</span>
+		</summary>
+		<div class="tenant-card__body">
+			<div class="tenant-card__row">
+				<div class="kv">
+					<dt>Tech</dt><dd>{ t.Owners.Technical }</dd>
+					<dt>Org</dt><dd>{ t.Owners.Organizational }</dd>
+				</div>
+				<div class="kv">
+					<dt>Host (prod)</dt><dd><a href={ templ.URL("https://" + t.Stages["prod"].Host) }><code>{ t.Stages["prod"].Host }</code></a></dd>
+					<dt>Host (staging)</dt><dd><a href={ templ.URL("https://" + t.Stages["staging"].Host) }><code>{ t.Stages["staging"].Host }</code></a></dd>
+				</div>
+			</div>
+			@stagePanel(t.Stages["prod"], "prod")
+			@stagePanel(t.Stages["staging"], "staging")
+			@driftPanel(t.Drift)
+			@compliancePanel(t.Compliance)
+		</div>
+	</details>
+}
+
+templ activityBadge(s status.Stage, stage string) {
+	{{ label := activityLabel(s) }}
+	<span
+		class={ "badge", "badge--activity", "activity--" + label }
+		data-stage={ stage }
+		data-activity={ label }
+		title={ tooltipForActivity(s, stage, label) }
+	>
+		{ stage }: { activityWord(label) }
+	</span>
+}
+
+func tooltipForActivity(s status.Stage, stage, label string) string {
+	if s.Metrics == nil {
+		return stage + ": noch keine Prometheus-Daten"
+	}
+
+	m := s.Metrics
+	parts := []string{
+		fmt.Sprintf("%s — %s", stage, activityWord(label)),
+		fmt.Sprintf("24h: %s req", fmtCount(m.Requests24h)),
+		fmt.Sprintf("7d:  %s req", fmtCount(m.Requests7d)),
+	}
+
+	if m.LastRequestAt != nil {
+		parts = append(parts, "letzter Request: "+fmtAgo(m.LastRequestAt))
+	} else {
+		parts = append(parts, "noch nie genutzt")
+	}
+
+	if m.ErrorRate5xx > 0 {
+		parts = append(parts, "5xx: "+fmtPct(m.ErrorRate5xx))
+	}
+
+	if m.Restarts24h > 0 {
+		parts = append(parts, fmt.Sprintf("%d Restarts in 24h", m.Restarts24h))
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+templ stagePanel(s status.Stage, stage string) {
+	<section class="stage-panel">
+		<header>
+			<h3>{ stage }</h3>
+			<small><code>{ s.Host }</code></small>
+		</header>
+		if s.Metrics != nil {
+			<div class="metrics-grid">
+				<div class="metric"><dt>24h</dt><dd>{ fmtCount(s.Metrics.Requests24h) }</dd></div>
+				<div class="metric"><dt>7d</dt><dd>{ fmtCount(s.Metrics.Requests7d) }</dd></div>
+				<div class="metric"><dt>letzter</dt><dd>{ fmtAgo(s.Metrics.LastRequestAt) }</dd></div>
+				<div class="metric"><dt>5xx</dt><dd>{ fmtPct(s.Metrics.ErrorRate5xx) }</dd></div>
+				<div class="metric"><dt>Restarts/24h</dt><dd>{ strconv.FormatInt(s.Metrics.Restarts24h, 10) }</dd></div>
+				<div class="metric"><dt>Memory</dt><dd>{ fmtBytes(s.Metrics.MemoryUsedBytes) } / { fmtBytes(s.Metrics.MemoryLimitBytes) }</dd></div>
+			</div>
+			if pts := sparklineSVG(s.Metrics.SparklineHourly); pts != "" {
+				<svg class="sparkline" viewBox="0 0 100 20" preserveAspectRatio="none" aria-label="Traffic-Verlauf">
+					<polyline points={ pts } fill="none" stroke="currentColor" stroke-width="1.2"/>
+				</svg>
+			}
+		} else {
+			<p class="muted"><small>Noch keine Prometheus-Daten für diese Stage.</small></p>
+		}
+		<div class="argo-line">
+			<small>
+				Argo:
+				@SyncBadge(s.SyncStatus)
+				@HealthBadge(s.HealthStatus)
+				if s.LastDeployAt != nil {
+					· last deploy { fmtAgo(s.LastDeployAt) }
+				}
+			</small>
+		</div>
+	</section>
+}
+
+templ driftSummary(d map[string]drift.Snapshot) {
+	if len(d) > 0 {
+		{{
+			be := d["backend"]
+			fe := d["frontend"]
+			combined := be.CommitsAhead + fe.CommitsAhead
+		}}
+		<span class="badge badge--drift" title="Commits, die staging vor prod hat (BE + FE summiert)">
+			drift: +{ strconv.Itoa(combined) }
+		</span>
+	}
+}
+
+templ driftPanel(d map[string]drift.Snapshot) {
+	if len(d) > 0 {
+		<section class="drift-panel">
+			<h3>Drift staging → prod</h3>
+			<table class="drift-table">
+				<tr><th></th><th>staging</th><th>prod</th><th>Ahead</th></tr>
+				for _, comp := range []string{"backend", "frontend"} {
+					{{ s, ok := d[comp] }}
+					if ok {
+						<tr>
+							<th>{ comp }</th>
+							<td><code>{ s.StagingTag }</code></td>
+							<td><code>{ s.ProdTag }</code></td>
+							<td>{ driftLabel(s) }</td>
+						</tr>
+					}
+				}
+			</table>
+		</section>
+	}
+}
+
+templ complianceBadge(rows []compliance.CheckResult) {
+	{{ pass, fail, errCount := complianceTotals(rows) }}
+	if len(rows) == 0 {
+		<span class="badge badge--unknown" title="Compliance-Scanner hat diesen Tenant noch nicht erfasst.">compliance: —</span>
+	} else if fail == 0 && errCount == 0 {
+		<span class="badge badge--ok" title={ fmt.Sprintf("%d von %d Checks bestanden", pass, pass+fail+errCount) }>compliance: ✓</span>
+	} else {
+		<span class="badge badge--warn" title={ fmt.Sprintf("%d fail, %d error, %d ok", fail, errCount, pass) }>compliance: { strconv.Itoa(fail+errCount) } offen</span>
+	}
+}
+
+templ compliancePanel(rows []compliance.CheckResult) {
+	if len(rows) > 0 {
+		<section class="compliance-panel">
+			<h3>Compliance</h3>
+			<ul>
+				for _, r := range rows {
+					<li>
+						<span class={ "badge", "badge--" + complianceCls(r.Status) }>{ string(r.Status) }</span>
+						<code>{ r.CheckName }</code>
+						if r.Details != "" {
+							<small> — { r.Details }</small>
+						}
+					</li>
+				}
+			</ul>
+		</section>
+	}
+}
+
+func complianceCls(s compliance.Status) string {
+	switch s {
+	case compliance.StatusPass:
+		return "ok"
+	case compliance.StatusFail:
+		return "warn"
+	case compliance.StatusError:
+		return "error"
+	default:
+		return "unknown"
+	}
+}
+
+// --- table view ----------------------------------------------------------
+
+templ tableView(tenants []status.Tenant) {
+	<table class="tenants-table" id="tenants-table">
+		<thead>
+			<tr>
+				<th data-column="slug" data-sort="text">Slug</th>
+				<th data-column="owners">Owner</th>
+				<th data-column="hosts">Hosts</th>
+				<th data-column="activity">Aktivität (prod)</th>
+				<th data-column="traffic" data-sort="num" data-sort-key="prod-req24h">Req/24h</th>
+				<th data-column="traffic" data-sort="num" data-sort-key="prod-req7d">Req/7d</th>
+				<th data-column="last-request" data-sort="num" data-sort-key="prod-last-request">Letzter Request</th>
+				<th data-column="sparkline">Trend</th>
+				<th data-column="drift" data-sort="num" data-sort-key="drift-total">Drift</th>
+				<th data-column="health">Argo</th>
+				<th data-column="restarts" data-sort="num" data-sort-key="prod-restarts24h" hidden>Restarts/24h</th>
+				<th data-column="5xx" data-sort="num" data-sort-key="prod-5xx" hidden>5xx</th>
+				<th data-column="memory" data-sort="num" data-sort-key="prod-mem-headroom" hidden>Mem-Free</th>
+				<th data-column="compliance">Compliance</th>
+				<th data-column="last-deploy" hidden>Last deploy</th>
+			</tr>
+		</thead>
+		<tbody>
+			if len(tenants) == 0 {
+				<tr><td colspan="14" class="empty">Noch keine Tenants geclaimt.</td></tr>
+			}
+			for _, t := range tenants {
+				@tenantRow(t)
+			}
+		</tbody>
+	</table>
+}
+
+templ tenantRow(t status.Tenant) {
+	{{
+		prMet := t.Stages["prod"].Metrics
+		be := t.Drift["backend"]
+		fe := t.Drift["frontend"]
+		driftTotal := be.CommitsAhead + fe.CommitsAhead
+	}}
+	<tr class="tenant-row" data-drift-total={ strconv.Itoa(driftTotal) } { tenantAttrs(t)... }>
+		<td data-column="slug"><a href={ templ.URL(fmt.Sprintf("/app/%s", t.Slug)) }>{ t.Slug }</a></td>
+		<td data-column="owners">
+			<small>tech: { t.Owners.Technical }</small><br/>
+			<small>org: { t.Owners.Organizational }</small>
 		</td>
-		<td><code>{ row.App.Stages.Prod.Host }</code></td>
-		<td
-			hx-get={ fmt.Sprintf("/partials/app-status/%s", row.App.Slug) }
-			hx-trigger="load, every 30s"
-			hx-swap="outerHTML"
-			class="status-cell"
-		>
-			@StatusCell(row.Status)
+		<td data-column="hosts">
+			<small><a href={ templ.URL("https://" + t.Stages["prod"].Host) }>{ t.Stages["prod"].Host }</a></small><br/>
+			<small><a href={ templ.URL("https://" + t.Stages["staging"].Host) }>{ t.Stages["staging"].Host }</a></small>
 		</td>
-		<td class="status-cell">@HealthBadge(row.Status.Health)</td>
-		<td
-			hx-get={ fmt.Sprintf("/partials/compliance/%s", row.App.Slug) }
-			hx-trigger="load, every 5m"
-			hx-swap="outerHTML"
-			class="status-cell"
-		>
-			<span class="badge badge--unknown">—</span>
+		<td data-column="activity">@activityBadge(t.Stages["prod"], "prod")</td>
+		<td data-column="traffic" class="num">{ snapshotReq24h(prMet) }</td>
+		<td data-column="traffic" class="num">{ snapshotReq7d(prMet) }</td>
+		<td data-column="last-request">{ snapshotLastReq(prMet) }</td>
+		<td data-column="sparkline">
+			if prMet != nil {
+				@maybeSparkline(prMet.SparklineHourly)
+			}
 		</td>
-		<td><time>{ row.Status.LastDeploy }</time></td>
+		<td data-column="drift">@driftCell(t.Drift, driftTotal)</td>
+		<td data-column="health">
+			@SyncBadge(t.Stages["prod"].SyncStatus)
+			@HealthBadge(t.Stages["prod"].HealthStatus)
+		</td>
+		<td data-column="restarts" class="num" hidden>{ snapshotRestarts(prMet) }</td>
+		<td data-column="5xx" class="num" hidden>{ snapshot5xx(prMet) }</td>
+		<td data-column="memory" class="num" hidden>{ snapshotMemHeadroom(prMet) }</td>
+		<td data-column="compliance">@complianceBadge(t.Compliance)</td>
+		<td data-column="last-deploy" hidden>{ deployAgo(t.Stages["prod"].LastDeployAt) }</td>
 	</tr>
+}
+
+templ maybeSparkline(values []int64) {
+	{{ pts := sparklineSVG(values) }}
+	if pts != "" {
+		<svg class="sparkline" viewBox="0 0 100 20" preserveAspectRatio="none">
+			<polyline points={ pts } fill="none" stroke="currentColor" stroke-width="1.2"/>
+		</svg>
+	}
+}
+
+templ driftCell(d map[string]drift.Snapshot, total int) {
+	if total > 0 {
+		<span class="badge badge--drift" title="Backend + Frontend Commits, die staging vor prod hat">+{ strconv.Itoa(total) }</span>
+	} else if len(d) > 0 {
+		<span class="muted">=</span>
+	} else {
+		—
+	}
 }

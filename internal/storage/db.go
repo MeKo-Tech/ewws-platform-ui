@@ -28,7 +28,10 @@ func Open(path string) (*DB, error) {
 	if path != ":memory:" {
 		// _journal_mode=WAL: concurrent readers don't block the writer.
 		// _busy_timeout=5000: wait up to 5s if the file is locked.
-		dsn = fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", filepath.Clean(path))
+		dsn = fmt.Sprintf(
+			"file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
+			filepath.Clean(path),
+		)
 	}
 
 	sqlDB, err := sql.Open("sqlite", dsn)
@@ -52,6 +55,7 @@ func (db *DB) Close() error {
 	if db == nil || db.sql == nil {
 		return nil
 	}
+
 	return db.sql.Close()
 }
 
@@ -71,6 +75,7 @@ func (db *DB) migrate() error {
 	defer cancel()
 
 	_, err := db.sql.ExecContext(ctx, schema)
+
 	return err
 }
 
@@ -87,6 +92,33 @@ CREATE TABLE IF NOT EXISTS compliance_check (
 );
 
 CREATE INDEX IF NOT EXISTS idx_compliance_check_repo ON compliance_check(repo);
+
+CREATE TABLE IF NOT EXISTS metrics_snapshot (
+    slug                 TEXT NOT NULL,
+    stage                TEXT NOT NULL,
+    requests_24h         INTEGER NOT NULL DEFAULT 0,
+    requests_7d          INTEGER NOT NULL DEFAULT 0,
+    last_request_at      INTEGER,                       -- unix seconds, NULL if no traffic
+    error_rate_5xx       REAL NOT NULL DEFAULT 0,
+    restarts_24h         INTEGER NOT NULL DEFAULT 0,
+    memory_used_bytes    INTEGER NOT NULL DEFAULT 0,
+    memory_limit_bytes   INTEGER NOT NULL DEFAULT 0,
+    cpu_used_millicores  INTEGER NOT NULL DEFAULT 0,
+    cpu_limit_millicores INTEGER NOT NULL DEFAULT 0,
+    sparkline_hourly     TEXT NOT NULL DEFAULT '',      -- comma-separated int64
+    collected_at         INTEGER NOT NULL,
+    PRIMARY KEY (slug, stage)
+);
+
+CREATE TABLE IF NOT EXISTS drift_snapshot (
+    slug             TEXT NOT NULL,
+    component        TEXT NOT NULL,
+    staging_tag      TEXT NOT NULL DEFAULT '',
+    prod_tag         TEXT NOT NULL DEFAULT '',
+    commits_ahead    INTEGER NOT NULL DEFAULT 0,
+    collected_at     INTEGER NOT NULL,
+    PRIMARY KEY (slug, component)
+);
 `
 
 // ErrNotFound is returned when a row is expected but missing.

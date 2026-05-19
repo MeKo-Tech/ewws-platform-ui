@@ -17,9 +17,13 @@ import (
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/argocd"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/compliance"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/config"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/drift"
 	httpapp "github.com/MeKo-Tech/ewws-platform-ui/internal/http"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/metrics"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/prometheus"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/status"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/storage"
 	gh "github.com/google/go-github/v68/github"
 )
@@ -60,16 +64,27 @@ func run() error {
 
 	db, err := storage.Open(cfg.DBPath)
 	if err != nil {
-		logger.Warn("storage open failed; compliance scans disabled", slog.String("path", cfg.DBPath), slog.Any("err", err))
+		logger.Warn(
+			"storage open failed; compliance scans disabled",
+			slog.String("path", cfg.DBPath),
+			slog.Any("err", err),
+		)
 	}
+
 	if db != nil {
 		defer db.Close()
 	}
 
 	complianceStore := compliance.NewStore(db)
+	metricsStore := metrics.NewStore(db)
+	driftStore := drift.NewStore(db)
 
-	if db != nil && cfg.ComplianceScanInterval > 0 && cfg.GitHubAPIToken != "" {
-		ghClient := gh.NewClient(nil).WithAuthToken(cfg.GitHubAPIToken)
+	var ghClient *gh.Client
+	if cfg.GitHubAPIToken != "" {
+		ghClient = gh.NewClient(nil).WithAuthToken(cfg.GitHubAPIToken)
+	}
+
+	if db != nil && cfg.ComplianceScanInterval > 0 && ghClient != nil {
 		scanner := &compliance.Scanner{
 			GH:       ghClient,
 			Store:    complianceStore,
@@ -77,12 +92,63 @@ func run() error {
 			Logger:   logger.With(slog.String("component", "compliance")),
 		}
 		go scanner.RunForever(ctx, cfg.ComplianceScanInterval)
-		logger.Info("compliance scanner started", slog.Duration("interval", cfg.ComplianceScanInterval))
+
+		logger.Info(
+			"compliance scanner started",
+			slog.Duration("interval", cfg.ComplianceScanInterval),
+		)
 	} else {
 		logger.Info("compliance scanner not started",
 			slog.Bool("has_db", db != nil),
 			slog.Duration("interval", cfg.ComplianceScanInterval),
 			slog.Bool("has_token", cfg.GitHubAPIToken != ""))
+	}
+
+	if db != nil && cfg.MetricsScanInterval > 0 && cfg.PrometheusEnabled() {
+		promClient := prometheus.New(cfg.PrometheusURL)
+
+		scanner := &metrics.Scanner{
+			Prom:     promClient,
+			Store:    metricsStore,
+			Registry: cfg.AppsRegistryRepo,
+			Logger:   logger.With(slog.String("component", "metrics")),
+		}
+		go scanner.RunForever(ctx, cfg.MetricsScanInterval)
+
+		logger.Info("metrics scanner started", slog.Duration("interval", cfg.MetricsScanInterval))
+	} else {
+		logger.Info("metrics scanner not started",
+			slog.Bool("has_db", db != nil),
+			slog.Duration("interval", cfg.MetricsScanInterval),
+			slog.Bool("prometheus_enabled", cfg.PrometheusEnabled()))
+	}
+
+	if db != nil && cfg.DriftScanInterval > 0 && ghClient != nil {
+		scanner := &drift.Scanner{
+			Fetcher: &drift.Fetcher{
+				GH:     ghClient,
+				Logger: logger.With(slog.String("component", "drift")),
+			},
+			Store:    driftStore,
+			Registry: cfg.AppsRegistryRepo,
+			Logger:   logger.With(slog.String("component", "drift")),
+		}
+		go scanner.RunForever(ctx, cfg.DriftScanInterval)
+
+		logger.Info("drift scanner started", slog.Duration("interval", cfg.DriftScanInterval))
+	} else {
+		logger.Info("drift scanner not started",
+			slog.Bool("has_db", db != nil),
+			slog.Duration("interval", cfg.DriftScanInterval),
+			slog.Bool("has_token", cfg.GitHubAPIToken != ""))
+	}
+
+	aggregator := &status.Aggregator{
+		Argo:            argoCl,
+		MetricsStore:    metricsStore,
+		DriftStore:      driftStore,
+		ComplianceStore: complianceStore,
+		Logger:          logger.With(slog.String("component", "aggregator")),
 	}
 
 	handler := httpapp.NewRouter(httpapp.Deps{
@@ -92,6 +158,9 @@ func run() error {
 		SessionStore:    store,
 		Reserved:        reserved,
 		ComplianceStore: complianceStore,
+		MetricsStore:    metricsStore,
+		DriftStore:      driftStore,
+		Aggregator:      aggregator,
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Port)

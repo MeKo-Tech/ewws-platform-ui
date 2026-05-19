@@ -89,6 +89,37 @@ func (s *Store) ListBySlug(ctx context.Context, slug string) ([]CheckResult, err
 	return out, rows.Err()
 }
 
+// List returns every CheckResult in the store, ordered by slug then
+// check_name. The status aggregator uses this to build the per-tenant
+// compliance section in one query instead of fanning out per slug.
+func (s *Store) List(ctx context.Context) ([]CheckResult, error) {
+	rows, err := s.db.SQL().QueryContext(ctx, `
+		SELECT slug, repo, check_name, status, details, last_checked
+		FROM compliance_check
+		ORDER BY slug, check_name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query compliance_check: %w", err)
+	}
+	defer rows.Close()
+
+	var out []CheckResult
+	for rows.Next() {
+		var (
+			r         CheckResult
+			ts        int64
+			statusStr string
+		)
+		if err := rows.Scan(&r.Slug, &r.Repo, &r.CheckName, &statusStr, &r.Details, &ts); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		r.Status = Status(statusStr)
+		r.LastChecked = time.Unix(ts, 0).UTC()
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // Summary represents a per-slug rollup. Counts checks by status.
 type Summary struct {
 	Slug        string
