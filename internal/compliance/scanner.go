@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
@@ -45,7 +43,7 @@ func (s *Scanner) RunOnce(ctx context.Context) (int, error) {
 
 	processed := 0
 	for _, app := range apps {
-		owner, repo, err := parseRepoURL(app.Repo.URL)
+		owner, repo, err := registry.ParseGitHubURL(app.Repo.URL)
 		if err != nil {
 			s.logf(ctx, "warn", "skip app — bad repo url", "slug", app.Slug, "url", app.Repo.URL, "err", err)
 			continue
@@ -111,27 +109,9 @@ func (s *Scanner) logf(_ context.Context, level, msg string, kv ...any) {
 	}
 }
 
-// parseRepoURL extracts owner + repo from a https://github.com/Owner/Repo URL.
-// Tolerates trailing slashes and `.git` suffixes.
+// parseRepoURL is now registry.ParseGitHubURL; this stub is kept as a
+// breadcrumb for older code paths that may still call it directly.
+// Deprecated: use registry.ParseGitHubURL.
 func parseRepoURL(raw string) (string, string, error) {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return "", "", err
-	}
-	if u.Host != "github.com" {
-		return "", "", fmt.Errorf("not a github.com URL: %s", raw)
-	}
-
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) < 2 {
-		return "", "", fmt.Errorf("path missing owner/repo: %s", u.Path)
-	}
-
-	owner := parts[0]
-	repo := strings.TrimSuffix(parts[1], ".git")
-	if owner == "" || repo == "" {
-		return "", "", fmt.Errorf("empty owner or repo: %s", raw)
-	}
-
-	return owner, repo, nil
+	return registry.ParseGitHubURL(raw)
 }

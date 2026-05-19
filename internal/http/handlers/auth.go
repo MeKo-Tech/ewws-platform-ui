@@ -31,7 +31,10 @@ func (a Auth) oauthConfig() *oauth2.Config {
 		ClientSecret: a.Cfg.GitHubClientSecret,
 		Endpoint:     githuboauth.Endpoint,
 		RedirectURL:  a.Cfg.OAuthRedirectURL(),
-		Scopes:       []string{"read:user", "user:email", "read:org", "repo"},
+		// `workflow` is needed so the at-claim bootstrap can push
+		// .github/workflows/*.yml (release-please, test-pr-title);
+		// `repo` covers the rest (branch protection, config files).
+		Scopes: []string{"read:user", "user:email", "read:org", "repo", "workflow"},
 	}
 }
 
