@@ -36,6 +36,8 @@ func run() error {
 
 	logger := buildLogger(cfg.LogFormat)
 
+	registry.SetAPIToken(cfg.GitHubAPIToken)
+
 	argoCl := argocd.New(cfg.ArgoCDURL, cfg.ArgoCDToken)
 
 	store := middleware.NewSessionStore(cfg.SessionSecret)

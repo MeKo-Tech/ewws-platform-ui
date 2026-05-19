@@ -6,6 +6,7 @@ package registry
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,10 +15,31 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// base64Std is the standard base64 encoder used by GitHub's Contents API.
+var base64Std = base64.StdEncoding
+
+// apiToken holds the server-side GitHub token used by getRaw to call the
+// REST API. Set once at startup via SetAPIToken — without it, private
+// registries return 404 on every fetch. atomic.Value lets handler
+// goroutines read without a mutex.
+var apiToken atomic.Pointer[string]
+
+// SetAPIToken wires the server's GitHub token for subsequent registry
+// fetches. Empty string is a no-op (and leaves any previous token
+// in place — callers should call this at most once during boot).
+func SetAPIToken(token string) {
+	if token == "" {
+		return
+	}
+	t := token
+	apiToken.Store(&t)
+}
 
 // App is a parsed `apps/<slug>.yaml` document.
 type App struct {
@@ -154,39 +176,39 @@ func (r *ReservedSlugs) IsReserved(slug string) bool {
 	return false
 }
 
-// LoadReservedSlugs fetches and parses reserved-slugs.yaml from
-// `raw.githubusercontent.com/.../main/reserved-slugs.yaml`.
+// LoadReservedSlugs fetches and parses reserved-slugs.yaml via the GitHub
+// REST API (private-repo friendly when SetAPIToken has been called).
 //
 // Returns an empty (non-nil) struct on transient errors so the server
 // boots even if GitHub is briefly unreachable.
 func LoadReservedSlugs(ctx context.Context, repo string) (*ReservedSlugs, error) {
-	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/main/reserved-slugs.yaml", repo)
+	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/reserved-slugs.yaml?ref=main", repo)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-
-	resp, err := client.Do(req)
+	body, err := getRaw(ctx, url)
 	if err != nil {
 		return &ReservedSlugs{}, fmt.Errorf("fetch reserved-slugs: %w", err)
 	}
 
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return &ReservedSlugs{}, fmt.Errorf("fetch reserved-slugs: %s", resp.Status)
+	// Contents API returns a JSON envelope with `content` base64-encoded.
+	var env struct {
+		Encoding string `json:"encoding"`
+		Content  string `json:"content"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, fmt.Errorf("decode reserved-slugs envelope: %w", err)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if env.Encoding != "base64" {
+		return nil, fmt.Errorf("reserved-slugs unexpected encoding %q", env.Encoding)
+	}
+
+	decoded, err := base64Decode(env.Content)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode reserved-slugs body: %w", err)
 	}
 
 	var rs ReservedSlugs
-	if err := yaml.Unmarshal(body, &rs); err != nil {
+	if err := yaml.Unmarshal(decoded, &rs); err != nil {
 		return nil, fmt.Errorf("decode reserved-slugs: %w", err)
 	}
 
@@ -209,20 +231,23 @@ func Sort(apps []App) []App {
 }
 
 // AppsListResponse is the raw response from the GitHub Contents API for
-// `apps/`. We only need name + download_url.
+// `apps/`. Private repos return `download_url: null`, so we fetch the
+// file body via the Contents API instead.
 type AppsListResponse []struct {
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Type        string `json:"type"`
-	DownloadURL string `json:"download_url"`
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Type string `json:"type"`
+}
+
+// contentsFile is the per-file Contents API response (single-file GET).
+type contentsFile struct {
+	Encoding string `json:"encoding"`
+	Content  string `json:"content"`
 }
 
 // FetchAppsFromGitHub returns every `apps/*.yaml` from the registry repo
-// (except entries whose filename starts with `_`).
-//
-// Uses raw.githubusercontent.com via the Contents API listing, so it
-// works without authentication for a public repo. Failures fall through
-// with a partial list and an error — caller can decide.
+// (except entries whose filename starts with `_`). Authenticates via
+// SetAPIToken; private repos return 404 unauthenticated.
 func FetchAppsFromGitHub(ctx context.Context, repo string) ([]App, error) {
 	contentsURL := fmt.Sprintf("https://api.github.com/repos/%s/contents/apps?ref=main", repo)
 
@@ -251,9 +276,15 @@ func FetchAppsFromGitHub(ctx context.Context, repo string) ([]App, error) {
 			continue
 		}
 
-		raw, err := getRaw(ctx, item.DownloadURL)
+		fileURL := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=main", repo, item.Path)
+
+		fileBody, err := getRaw(ctx, fileURL)
 		if err != nil {
-			// Skip individual file failures but keep going.
+			continue
+		}
+
+		raw, err := decodeContentsEnvelope(fileBody)
+		if err != nil {
 			continue
 		}
 
@@ -268,15 +299,21 @@ func FetchAppsFromGitHub(ctx context.Context, repo string) ([]App, error) {
 	return Sort(apps), nil
 }
 
-// FetchSingleApp returns one `apps/<slug>.yaml` parsed.
+// FetchSingleApp returns one `apps/<slug>.yaml` parsed. Uses the Contents
+// API so private registries work as long as SetAPIToken was called.
 func FetchSingleApp(ctx context.Context, repo, slug string) (*App, []byte, error) {
 	if !SlugRegex.MatchString(slug) {
 		return nil, nil, errors.New("invalid slug")
 	}
 
-	rawURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/main/apps/%s.yaml", repo, slug)
+	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/apps/%s.yaml?ref=main", repo, slug)
 
-	body, err := getRaw(ctx, rawURL)
+	envelope, err := getRaw(ctx, url)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	body, err := decodeContentsEnvelope(envelope)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -289,6 +326,28 @@ func FetchSingleApp(ctx context.Context, repo, slug string) (*App, []byte, error
 	return app, body, nil
 }
 
+// decodeContentsEnvelope unwraps a `{"encoding":"base64","content":"…"}`
+// response from the GitHub Contents API into the raw file bytes.
+func decodeContentsEnvelope(body []byte) ([]byte, error) {
+	var f contentsFile
+	if err := json.Unmarshal(body, &f); err != nil {
+		return nil, fmt.Errorf("decode contents envelope: %w", err)
+	}
+
+	if f.Encoding != "base64" {
+		return nil, fmt.Errorf("unexpected contents encoding %q", f.Encoding)
+	}
+
+	return base64Decode(f.Content)
+}
+
+// base64Decode strips the embedded newlines GitHub injects every 60
+// characters before decoding.
+func base64Decode(s string) ([]byte, error) {
+	clean := strings.ReplaceAll(s, "\n", "")
+	return base64Std.DecodeString(clean)
+}
+
 func getRaw(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -296,6 +355,10 @@ func getRaw(ctx context.Context, url string) ([]byte, error) {
 	}
 
 	req.Header.Set("Accept", "application/vnd.github+json")
+
+	if t := apiToken.Load(); t != nil && *t != "" {
+		req.Header.Set("Authorization", "Bearer "+*t)
+	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
