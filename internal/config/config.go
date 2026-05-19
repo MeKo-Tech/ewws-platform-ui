@@ -19,6 +19,7 @@ type Config struct {
 	BaseURL            string
 	GitHubClientID     string
 	GitHubClientSecret string
+	GitHubAPIToken     string // server-side token for the private registry (PAT or App-installation)
 	SessionSecret      []byte
 	ArgoCDURL          string
 	ArgoCDToken        string
@@ -31,7 +32,10 @@ type Config struct {
 // LoadFromEnv reads configuration from the environment.
 //
 // Required (errors when empty): GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
-// SESSION_SECRET, ARGOCD_TOKEN. Everything else falls back to a default.
+// SESSION_SECRET. ARGOCD_TOKEN and GITHUB_API_TOKEN are optional —
+// without ARGOCD_TOKEN the live-status pane is hidden; without
+// GITHUB_API_TOKEN the registry has to be public (private-repo requests
+// return 404 unauthenticated).
 func LoadFromEnv() (*Config, error) {
 	c := &Config{
 		Port:             defaultPort(),
@@ -45,6 +49,7 @@ func LoadFromEnv() (*Config, error) {
 
 	c.GitHubClientID = os.Getenv("GITHUB_CLIENT_ID")
 	c.GitHubClientSecret = os.Getenv("GITHUB_CLIENT_SECRET")
+	c.GitHubAPIToken = os.Getenv("GITHUB_API_TOKEN")
 	c.ArgoCDToken = os.Getenv("ARGOCD_TOKEN")
 
 	secret := os.Getenv("SESSION_SECRET")
@@ -91,11 +96,18 @@ func (c *Config) validate() error {
 		return errors.New("github client secret is required")
 	}
 
-	if c.ArgoCDToken == "" {
-		return errors.New("argocd token is required")
-	}
-
 	return nil
+}
+
+// ArgoCDEnabled reports whether the live-status integration is wired up.
+func (c *Config) ArgoCDEnabled() bool {
+	return c.ArgoCDToken != ""
+}
+
+// GitHubAPIReady reports whether the server has a token for the GitHub
+// REST API. Without it, private-registry reads return 404.
+func (c *Config) GitHubAPIReady() bool {
+	return c.GitHubAPIToken != ""
 }
 
 func defaultPort() int {
