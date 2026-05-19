@@ -9,10 +9,13 @@ import (
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/argocd"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/compliance"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/config"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/drift"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/handlers"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/metrics"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/static"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/status"
 )
 
 // Deps bundles everything the router needs.
@@ -23,6 +26,11 @@ type Deps struct {
 	SessionStore    *middleware.SessionStore
 	Reserved        *registry.ReservedSlugs
 	ComplianceStore *compliance.Store
+	MetricsStore    *metrics.Store
+	DriftStore      *drift.Store
+
+	// Aggregator merges Argo + metrics + drift + compliance per render.
+	Aggregator *status.Aggregator
 }
 
 // NewRouter builds the *http.ServeMux + middleware chain.
@@ -55,7 +63,7 @@ func registerHealth(mux *http.ServeMux, d Deps) {
 }
 
 func registerPages(mux *http.ServeMux, d Deps) {
-	landing := handlers.Landing{Cfg: d.Cfg, Argo: d.Argo, Logger: d.Logger}
+	landing := handlers.Landing{Cfg: d.Cfg, Aggregator: d.Aggregator, Logger: d.Logger}
 	mux.Handle("GET /{$}", landing)
 
 	detail := handlers.Detail{Cfg: d.Cfg, Argo: d.Argo, Logger: d.Logger}

@@ -38,6 +38,21 @@ type Config struct {
 	// ComplianceScanInterval — how often the periodic scanner walks the
 	// registry. 0 disables the scanner entirely.
 	ComplianceScanInterval time.Duration
+
+	// PrometheusURL is the in-cluster base URL of the kube-prometheus-stack
+	// query API. Empty disables the metrics scanner — the UI degrades to
+	// showing zeros for traffic/resource panes, but stays functional.
+	PrometheusURL string
+
+	// MetricsScanInterval — how often the metrics scanner refreshes the
+	// per-(slug,stage) Prometheus snapshot. Ignored when PrometheusURL is
+	// empty.
+	MetricsScanInterval time.Duration
+
+	// DriftScanInterval — how often the drift scanner compares each
+	// registry app's staging vs prod image tags against the GitHub
+	// compare API. Ignored when no GitHub API token is set.
+	DriftScanInterval time.Duration
 }
 
 // LoadFromEnv reads configuration from the environment.
@@ -66,11 +81,33 @@ func LoadFromEnv() (*Config, error) {
 	c.DBPath = getenvDefault("DB_PATH", "/var/data/platform-ui.db")
 
 	scanIntervalStr := getenvDefault("COMPLIANCE_SCAN_INTERVAL", "1h")
+
 	scanInterval, err := time.ParseDuration(scanIntervalStr)
 	if err != nil {
 		return nil, fmt.Errorf("COMPLIANCE_SCAN_INTERVAL: %w", err)
 	}
+
 	c.ComplianceScanInterval = scanInterval
+
+	c.PrometheusURL = os.Getenv("PROMETHEUS_URL")
+
+	metricsIntervalStr := getenvDefault("METRICS_SCAN_INTERVAL", "5m")
+
+	metricsInterval, err := time.ParseDuration(metricsIntervalStr)
+	if err != nil {
+		return nil, fmt.Errorf("METRICS_SCAN_INTERVAL: %w", err)
+	}
+
+	c.MetricsScanInterval = metricsInterval
+
+	driftIntervalStr := getenvDefault("DRIFT_SCAN_INTERVAL", "30m")
+
+	driftInterval, err := time.ParseDuration(driftIntervalStr)
+	if err != nil {
+		return nil, fmt.Errorf("DRIFT_SCAN_INTERVAL: %w", err)
+	}
+
+	c.DriftScanInterval = driftInterval
 
 	secret := os.Getenv("SESSION_SECRET")
 	if secret == "" {
@@ -128,6 +165,13 @@ func (c *Config) ArgoCDEnabled() bool {
 // REST API. Without it, private-registry reads return 404.
 func (c *Config) GitHubAPIReady() bool {
 	return c.GitHubAPIToken != ""
+}
+
+// PrometheusEnabled reports whether the metrics integration is wired up.
+// When false, the metrics scanner is a no-op and the UI shows zeros for
+// traffic/resource panes.
+func (c *Config) PrometheusEnabled() bool {
+	return c.PrometheusURL != ""
 }
 
 func defaultPort() int {

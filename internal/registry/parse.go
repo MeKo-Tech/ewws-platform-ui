@@ -37,6 +37,7 @@ func SetAPIToken(token string) {
 	if token == "" {
 		return
 	}
+
 	t := token
 	apiToken.Store(&t)
 }
@@ -51,9 +52,32 @@ type App struct {
 	Repo          Repo                `yaml:"repo"                     json:"repo"`
 	Stages        Stages              `yaml:"stages"                   json:"stages"`
 	Resources     Resources           `yaml:"resources"                json:"resources"`
+	Images        Images              `yaml:"images,omitempty"         json:"images,omitempty"`
 	Features      Features            `yaml:"features"                 json:"features"`
 	CreatedAt     string              `yaml:"created_at"               json:"created_at"`
 	StatusHistory []StatusHistoryItem `yaml:"status_history,omitempty" json:"status_history,omitempty"`
+}
+
+// Images holds the image repository + per-stage tag for each workload.
+// The schema is `images.<component>.{repository,tag.{staging,prod}}` — see
+// meko-app chart ≥1.6.0 and the image-updater AppSet which bumps each
+// stage independently.
+type Images struct {
+	Backend  ImageBlock `yaml:"backend,omitempty"  json:"backend,omitempty"`
+	Frontend ImageBlock `yaml:"frontend,omitempty" json:"frontend,omitempty"`
+}
+
+// ImageBlock is the repository + per-stage tag for one workload.
+type ImageBlock struct {
+	Repository string   `yaml:"repository,omitempty" json:"repository,omitempty"`
+	Tag        ImageTag `yaml:"tag,omitempty"        json:"tag,omitempty"`
+}
+
+// ImageTag carries the per-stage image tag the chart resolves at deploy
+// time. Either field may be empty (chart falls back to a chart default).
+type ImageTag struct {
+	Staging string `yaml:"staging,omitempty" json:"staging,omitempty"`
+	Prod    string `yaml:"prod,omitempty"    json:"prod,omitempty"`
 }
 
 // Owners — both required, GitHub logins.
@@ -182,7 +206,10 @@ func (r *ReservedSlugs) IsReserved(slug string) bool {
 // Returns an empty (non-nil) struct on transient errors so the server
 // boots even if GitHub is briefly unreachable.
 func LoadReservedSlugs(ctx context.Context, repo string) (*ReservedSlugs, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/reserved-slugs.yaml?ref=main", repo)
+	url := fmt.Sprintf(
+		"https://api.github.com/repos/%s/contents/reserved-slugs.yaml?ref=main",
+		repo,
+	)
 
 	body, err := getRaw(ctx, url)
 	if err != nil {
@@ -276,7 +303,11 @@ func FetchAppsFromGitHub(ctx context.Context, repo string) ([]App, error) {
 			continue
 		}
 
-		fileURL := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=main", repo, item.Path)
+		fileURL := fmt.Sprintf(
+			"https://api.github.com/repos/%s/contents/%s?ref=main",
+			repo,
+			item.Path,
+		)
 
 		fileBody, err := getRaw(ctx, fileURL)
 		if err != nil {
