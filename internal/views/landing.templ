@@ -60,12 +60,13 @@ templ Landing(props PageProps, rows []LandingRow) {
 					<th scope="col">Host (prod)</th>
 					<th scope="col">Sync</th>
 					<th scope="col">Health</th>
+					<th scope="col" title="Repo-bootstrap compliance: pr-title workflow, release-please, branch protection">Compliance</th>
 					<th scope="col">Last deploy</th>
 				</tr>
 			</thead>
 			<tbody>
 				if len(rows) == 0 {
-					<tr><td colspan="6" class="empty">No apps claimed yet.</td></tr>
+					<tr><td colspan="7" class="empty">No apps claimed yet.</td></tr>
 				}
 				for _, row := range rows {
 					@landingRow(row)
@@ -92,6 +93,14 @@ templ landingRow(row LandingRow) {
 			@StatusCell(row.Status)
 		</td>
 		<td class="status-cell">@HealthBadge(row.Status.Health)</td>
+		<td
+			hx-get={ fmt.Sprintf("/partials/compliance/%s", row.App.Slug) }
+			hx-trigger="load, every 5m"
+			hx-swap="outerHTML"
+			class="status-cell"
+		>
+			<span class="badge badge--unknown">—</span>
+		</td>
 		<td><time>{ row.Status.LastDeploy }</time></td>
 	</tr>
 }

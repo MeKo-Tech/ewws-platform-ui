@@ -15,10 +15,13 @@ import (
 	"time"
 
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/argocd"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/compliance"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/config"
 	httpapp "github.com/MeKo-Tech/ewws-platform-ui/internal/http"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/storage"
+	gh "github.com/google/go-github/v68/github"
 )
 
 func main() {
@@ -55,12 +58,40 @@ func run() error {
 		logger.Warn("reserved-slugs fetch failed; continuing with empty list", slog.Any("err", err))
 	}
 
+	db, err := storage.Open(cfg.DBPath)
+	if err != nil {
+		logger.Warn("storage open failed; compliance scans disabled", slog.String("path", cfg.DBPath), slog.Any("err", err))
+	}
+	if db != nil {
+		defer db.Close()
+	}
+
+	complianceStore := compliance.NewStore(db)
+
+	if db != nil && cfg.ComplianceScanInterval > 0 && cfg.GitHubAPIToken != "" {
+		ghClient := gh.NewClient(nil).WithAuthToken(cfg.GitHubAPIToken)
+		scanner := &compliance.Scanner{
+			GH:       ghClient,
+			Store:    complianceStore,
+			Registry: cfg.AppsRegistryRepo,
+			Logger:   logger.With(slog.String("component", "compliance")),
+		}
+		go scanner.RunForever(ctx, cfg.ComplianceScanInterval)
+		logger.Info("compliance scanner started", slog.Duration("interval", cfg.ComplianceScanInterval))
+	} else {
+		logger.Info("compliance scanner not started",
+			slog.Bool("has_db", db != nil),
+			slog.Duration("interval", cfg.ComplianceScanInterval),
+			slog.Bool("has_token", cfg.GitHubAPIToken != ""))
+	}
+
 	handler := httpapp.NewRouter(httpapp.Deps{
-		Cfg:          cfg,
-		Logger:       logger,
-		Argo:         argoCl,
-		SessionStore: store,
-		Reserved:     reserved,
+		Cfg:             cfg,
+		Logger:          logger,
+		Argo:            argoCl,
+		SessionStore:    store,
+		Reserved:        reserved,
+		ComplianceStore: complianceStore,
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Port)
