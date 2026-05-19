@@ -1,0 +1,96 @@
+package views
+
+// ClaimAction is a per-step bootstrap result rendered on the success page.
+// Status is stringified (applied | skipped | failed) to keep this view free
+// of the repobootstrap import.
+type ClaimAction struct {
+	Name    string
+	Status  string
+	Path    string
+	Message string
+}
+
+// ClaimSuccessData is the payload rendered after a successful claim
+// submission — links to the registry PR and lists what the bootstrap
+// helper did on the user's source repo.
+type ClaimSuccessData struct {
+	Slug       string
+	PRURL      string
+	RepoURL    string
+	StagingURL string
+	Actions    []ClaimAction
+}
+
+templ ClaimSuccess(props PageProps, data ClaimSuccessData) {
+	@Layout(props) {
+		<section class="hero">
+			<h1>Claim opened</h1>
+			<p>
+				Your subdomain <code>{ data.Slug }</code> is queued. The PR against
+				<a href="https://github.com/MeKo-Tech/ewws-apps-registry"><code>ewws-apps-registry</code></a>
+				is the source of truth — once merged, Argo CD provisions the namespace and deploys.
+			</p>
+			<p>
+				<a class="cta" href={ templ.URL(data.PRURL) }>Open the registry PR &rarr;</a>
+			</p>
+		</section>
+
+		<section>
+			<h2>Source-repo bootstrap</h2>
+			<p>
+				We tried to apply the platform standard settings to
+				<a href={ templ.URL(data.RepoURL) }><code>{ data.RepoURL }</code></a>
+				on your behalf. Anything <code>skipped</code> was already in place; <code>failed</code> means
+				you'll need to apply it manually (usually a permissions issue).
+			</p>
+			<table class="bootstrap-actions">
+				<thead>
+					<tr>
+						<th scope="col">Check</th>
+						<th scope="col">Status</th>
+						<th scope="col">Detail</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, a := range data.Actions {
+						<tr>
+							<td>{ a.Name }</td>
+							<td><span class={ "badge", "badge--" + bootstrapTone(a.Status) }>{ a.Status }</span></td>
+							<td>
+								if a.Message != "" {
+									<small>{ a.Message }</small>
+								} else if a.Path != "" {
+									<small><code>{ a.Path }</code></small>
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</section>
+
+		<section>
+			<h2>What happens next</h2>
+			<ol>
+				<li>Someone on <code>MeKo-Tech:ewws</code> reviews + merges the registry PR.</li>
+				<li>Argo CD picks up the new claim within ~30s, creates the namespace, runs the chart.</li>
+				<li>Your staging URL will be reachable at <a href={ templ.URL(data.StagingURL) }><code>{ data.StagingURL }</code></a> once the pods are Ready.</li>
+				<li>The compliance scanner re-checks your source repo every hour and updates the badge on the dashboard.</li>
+			</ol>
+		</section>
+	}
+}
+
+// bootstrapTone maps the action status to a badge tone (ok | fail | unknown).
+func bootstrapTone(status string) string {
+	switch status {
+	case "applied":
+		return "ok"
+	case "skipped":
+		return "unknown"
+	case "failed":
+		return "fail"
+	default:
+		return "unknown"
+	}
+}

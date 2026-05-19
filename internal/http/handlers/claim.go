@@ -11,7 +11,9 @@ import (
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/csrf"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/repobootstrap"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/views"
+	"github.com/google/go-github/v68/github"
 	"golang.org/x/oauth2"
 )
 
@@ -141,7 +143,60 @@ func (h Claim) handleSubmit(w http.ResponseWriter, r *http.Request, user *middle
 		return
 	}
 
-	http.Redirect(w, r, prResult.URL, http.StatusSeeOther)
+	bootstrapResults := h.bootstrapRepo(r.Context(), user, input)
+
+	page := views.PageProps{Title: "Claim opened", User: userFromCtx(r.Context())}
+
+	render(w, r, views.ClaimSuccess(page, views.ClaimSuccessData{
+		Slug:       input.Slug,
+		PRURL:      prResult.URL,
+		Actions:    toViewActions(bootstrapResults),
+		RepoURL:    input.RepoURL,
+		StagingURL: "https://" + input.StagingHost,
+	}))
+}
+
+// toViewActions adapts the repobootstrap types to the views' simpler shape
+// — keeps the templ free of cross-package imports.
+func toViewActions(actions []repobootstrap.Action) []views.ClaimAction {
+	out := make([]views.ClaimAction, 0, len(actions))
+	for _, a := range actions {
+		out = append(out, views.ClaimAction{
+			Name:    a.Name,
+			Status:  string(a.Status),
+			Path:    a.Path,
+			Message: a.Message,
+		})
+	}
+	return out
+}
+
+// bootstrapRepo applies the platform's standard settings to the user's
+// target repo (the one referenced from the claim form, NOT the registry
+// repo). Uses the user's OAuth token so the audit log shows their login.
+// Errors are surfaced per-step on the success page rather than blocking
+// the whole flow — the PR is already open at this point, and the
+// compliance scanner will pick up any gaps on its next tick anyway.
+func (h Claim) bootstrapRepo(
+	ctx context.Context,
+	user *middleware.SessionUser,
+	input *registry.ClaimInput,
+) []repobootstrap.Action {
+	owner, repo, err := registry.ParseGitHubURL(input.RepoURL)
+	if err != nil {
+		h.Logger.Warn("skip bootstrap — bad repo URL", slog.String("url", input.RepoURL), slog.Any("err", err))
+		return []repobootstrap.Action{{
+			Name:    "Bootstrap target repo",
+			Status:  repobootstrap.StatusFailed,
+			Message: "could not parse repo URL: " + err.Error(),
+		}}
+	}
+
+	src := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: user.Token})
+	httpClient := oauth2.NewClient(ctx, src)
+	client := github.NewClient(httpClient)
+
+	return repobootstrap.Run(ctx, client, owner, repo, input.Slug)
 }
 
 func (h Claim) openPR(
