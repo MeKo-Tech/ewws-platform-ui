@@ -1,0 +1,13 @@
+creation_rules:
+  # Prod-stage secrets — dedicated vault.
+  - path_regex: values\.prod(uction)?\.sops\.(env|yaml|json)$
+    azure_keyvault: https://mekorp-vault-prod.vault.azure.net/keys/sops-key-prod/c216fe1e920545ecabef90966146416d
+
+  # Staging-stage secrets — dedicated vault.
+  - path_regex: values\.staging\.sops\.(env|yaml|json)$
+    azure_keyvault: https://mekorp-vault-staging.vault.azure.net/keys/sops-key-staging/ff61ff8a27dc436fbb18d72d3358da1b
+
+  # Base / shared secrets (used by both stages) — dev vault.
+  # `values.sops.env` in repo root falls under this rule.
+  - path_regex: values\.sops\.(env|yaml|json)$
+    azure_keyvault: https://mekorp-vault.vault.azure.net/keys/sops-key-dev/9edede9113754bf9a0e94ed93138e33e

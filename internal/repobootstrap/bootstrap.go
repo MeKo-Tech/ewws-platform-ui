@@ -47,6 +47,10 @@ func Run(ctx context.Context, client *gh.Client, owner, repo, slug string) []Act
 		ensureReleasePleaseWorkflow,
 		ensureReleasePleaseConfig,
 		ensureReleasePleaseManifest,
+		ensureSopsConfig,
+		ensureValuesEnv,
+		ensureValuesSopsEnv,
+		ensureAgentsMarkdown,
 		ensureBranchProtectionMain,
 	}
 
@@ -96,6 +100,61 @@ func ensureReleasePleaseManifest(ctx context.Context, c *gh.Client, owner, repo,
 		"templates/release-please-manifest.json",
 		"chore: add release-please manifest (platform-ui)",
 		"release-please manifest",
+		nil,
+	)
+}
+
+// ensureSopsConfig writes the standard `.sops.yaml` that pins the three
+// MeKo Azure Key Vault keys to the per-stage filename convention. Vibe
+// coders don't edit this file; the platform UI manages it.
+func ensureSopsConfig(ctx context.Context, c *gh.Client, owner, repo, _ string) Action {
+	return ensureFile(ctx, c, owner, repo,
+		".sops.yaml",
+		"templates/.sops.yaml",
+		"chore: add .sops.yaml — MeKo Azure KV pinning (platform-ui)",
+		"sops config",
+		nil,
+	)
+}
+
+// ensureValuesEnv writes a commented stub `values.env`. Plain (non-secret)
+// app config goes here; per-stage overlays (`values.staging.env`,
+// `values.prod.env`) are optional and not bootstrapped — the vibe coder
+// adds them when needed.
+func ensureValuesEnv(ctx context.Context, c *gh.Client, owner, repo, _ string) Action {
+	return ensureFile(ctx, c, owner, repo,
+		"values.env",
+		"templates/values.env",
+		"chore: add values.env stub (platform-ui)",
+		"values.env (plain env)",
+		nil,
+	)
+}
+
+// ensureValuesSopsEnv writes the unencrypted scaffold for the sops-managed
+// secrets file. The header explicitly tells the vibe coder to run
+// `sops --encrypt --in-place values.sops.env` before committing real
+// secrets. We don't ship pre-encrypted content because the platform UI
+// doesn't have KV credentials.
+func ensureValuesSopsEnv(ctx context.Context, c *gh.Client, owner, repo, _ string) Action {
+	return ensureFile(ctx, c, owner, repo,
+		"values.sops.env",
+		"templates/values.sops.env",
+		"chore: add values.sops.env scaffold — encrypt before committing (platform-ui)",
+		"values.sops.env (encrypted env)",
+		nil,
+	)
+}
+
+// ensureAgentsMarkdown writes the agent-facing instructions any AI tool
+// running in the repo can read for context: deploy flow, repo
+// conventions, links to /docs.
+func ensureAgentsMarkdown(ctx context.Context, c *gh.Client, owner, repo, _ string) Action {
+	return ensureFile(ctx, c, owner, repo,
+		"AGENTS.md",
+		"templates/AGENTS.md",
+		"chore: add AGENTS.md — AI-agent instructions (platform-ui)",
+		"AGENTS.md (AI-agent instructions)",
 		nil,
 	)
 }
