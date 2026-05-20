@@ -735,3 +735,34 @@ pre {
 @media (max-width: 700px) {
   .docs-toc ol { columns: 1; }
 }
+
+/* Bootstrap button + result */
+
+.bootstrap-section {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.5rem;
+}
+
+.bootstrap-btn {
+  background: var(--meko-blue);
+  color: #ffffff;
+  border: 0;
+  padding: 0.5rem 1.1rem;
+  border-radius: var(--radius);
+  font: inherit;
+  cursor: pointer;
+}
+
+.bootstrap-btn:hover { background: var(--meko-blue-dark); }
+
+.bootstrap-result {
+  margin-top: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.7rem;
+}
+
+.bootstrap-result h3 { margin: 0 0 0.4rem; font-size: 1rem; }
+.bootstrap-result ul { list-style: none; padding: 0; margin: 0; }
+.bootstrap-result li { padding: 0.2rem 0; }

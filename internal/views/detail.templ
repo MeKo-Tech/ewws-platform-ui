@@ -176,6 +176,7 @@ templ Detail(page PageProps, props DetailProps) {
 			</section>
 			@detailDriftPanel(props.Tenant)
 			@detailCompliancePanel(props.Tenant)
+			@BootstrapButton(props.App.Slug, page.User)
 			<section class="resource-tree">
 				<h2>Resources</h2>
 				if props.Tree == nil || len(props.Tree.Nodes) == 0 {
