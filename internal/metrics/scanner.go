@@ -12,9 +12,10 @@ import (
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
 )
 
-// SparklineDays is the rolling window we keep per (slug, stage) for the
-// landing-page sparkline. 7 days × 24 buckets = 168 ints.
-const SparklineDays = 7
+// SparklineDays is the rolling window we keep per (slug, stage). 30 days
+// × 24 buckets = 720 ints — enough to drive both the small landing-page
+// sparkline (last-7d slice) and the larger detail-page chart (full 30d).
+const SparklineDays = 30
 
 // Scanner walks the registry and runs the queries package against each
 // (slug, stage) pair, persisting the resulting Snapshot via a Store.

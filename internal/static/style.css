@@ -561,3 +561,93 @@ pre {
 .muted { color: var(--muted); }
 .empty { text-align: center; padding: 1.5rem; color: var(--muted); }
 
+
+/* Detail page — traffic charts */
+
+.traffic-charts { margin: 1.5rem 0; }
+
+.traffic-charts__head {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.traffic-charts__head h2 { margin: 0; }
+
+.window-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.window-btn {
+  background: #ffffff;
+  border: 0;
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.window-btn + .window-btn { border-left: 1px solid var(--border); }
+
+.window-btn.is-active {
+  background: var(--meko-blue);
+  color: #ffffff;
+}
+
+.chart-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 0.7rem;
+}
+
+.chart-card__head {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.4rem;
+}
+
+.chart-card__head h3 { margin: 0; font-size: 1rem; text-transform: capitalize; }
+
+.chart-card__stat { font-size: 0.9rem; }
+
+.chart-frame {
+  position: relative;
+  width: 100%;
+  height: 220px;
+}
+
+.chart-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.chart-bg { fill: var(--bg-soft); }
+.chart-line {
+  stroke: var(--meko-blue);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-cursor { stroke: var(--muted); stroke-width: 0.5; opacity: 0.5; }
+.chart-dot { fill: var(--meko-blue); }
+
+.chart-tooltip {
+  position: absolute;
+  background: rgba(0,0,0,0.85);
+  color: #ffffff;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 5;
+}
+
+.detail-section { margin: 1.2rem 0; }
