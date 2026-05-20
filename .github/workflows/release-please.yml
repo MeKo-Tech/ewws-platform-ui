@@ -1,5 +1,10 @@
 name: release-please
 
+# Thin wrapper around the reusable workflow in MeKo-Tech/ewws-workflows.
+# Action SHAs + release-please config defaults live centrally there;
+# here we just point at the config + manifest files this repo already
+# maintains.
+
 on:
   push:
     branches: [main]
@@ -10,11 +15,7 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
-    steps:
-      - name: release-please
-        # googleapis/release-please-action@v4.1.4
-        uses: googleapis/release-please-action@a02a34c4d625f9be7cb89156071d8567266a2445
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+    uses: MeKo-Tech/ewws-workflows/.github/workflows/release-please.yml@main
+    with:
+      config-file: release-please-config.json
+      manifest-file: .release-please-manifest.json
