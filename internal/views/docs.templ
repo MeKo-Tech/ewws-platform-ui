@@ -19,16 +19,18 @@ templ Docs(props PageProps) {
 				<li><a href="#claim">1. Einen neuen Slug claimen</a></li>
 				<li><a href="#bootstrap">2. Was der Bootstrap in dein Repo schreibt</a></li>
 				<li><a href="#image-tags">3. Image-Tag-Konventionen</a></li>
-				<li><a href="#shared-secrets">4. Shared secrets (z.B. IPOffice)</a></li>
-				<li><a href="#writable-dirs">5. Writable dirs (readOnlyRootFilesystem)</a></li>
-				<li><a href="#retro">6. Bestehende App nachträglich anbinden</a></li>
-				<li><a href="#faq">7. FAQ</a></li>
+				<li><a href="#per-repo-secrets">4. App-eigene env vars + secrets (values.env / values.sops.env)</a></li>
+				<li><a href="#shared-secrets">5. Shared platform secrets (z.B. IPOffice)</a></li>
+				<li><a href="#writable-dirs">6. Writable dirs (readOnlyRootFilesystem)</a></li>
+				<li><a href="#retro">7. Bestehende App nachträglich anbinden</a></li>
+				<li><a href="#faq">8. FAQ</a></li>
 			</ol>
 		</nav>
 
 		@docsClaimSection()
 		@docsBootstrapSection()
 		@docsImageTagsSection()
+		@docsPerRepoSecretsSection()
 		@docsSharedSecretsSection()
 		@docsWritableDirsSection()
 		@docsRetroSection()
@@ -98,6 +100,26 @@ templ docsBootstrapSection() {
 					<td><code>.release-please-manifest.json</code></td>
 					<td><code>{ `{".": "0.0.0"}` }</code> — Start-Version</td>
 					<td>release-please tracked hier den aktuellen Stand.</td>
+				</tr>
+				<tr>
+					<td><code>.sops.yaml</code></td>
+					<td>Pinning auf MeKo Azure-KV (dev / staging / prod)</td>
+					<td>sops findet darüber den Encryption-Key. Siehe Sektion 4.</td>
+				</tr>
+				<tr>
+					<td><code>values.env</code></td>
+					<td>Header-Kommentare + Beispiele, plain</td>
+					<td>App-eigene non-secret env vars.</td>
+				</tr>
+				<tr>
+					<td><code>values.sops.env</code></td>
+					<td>Header-Kommentare, plaintext-scaffold</td>
+					<td>App-eigene secrets. <strong>Erste Edit muss mit <code>{ "sops --encrypt --in-place" }</code> verschlüsseln.</strong></td>
+				</tr>
+				<tr>
+					<td><code>AGENTS.md</code></td>
+					<td>Markdown mit Deploy-Flow + Konventionen</td>
+					<td>Liest jeder AI-Agent der im Repo arbeitet (Cursor, Claude, etc.).</td>
 				</tr>
 				<tr>
 					<td>Branch protection <code>main</code></td>
@@ -177,9 +199,84 @@ func docsImagesYAMLSnippet() string {
 `
 }
 
+templ docsPerRepoSecretsSection() {
+	<section class="docs-section" id="per-repo-secrets">
+		<h2>4. App-eigene env vars + secrets</h2>
+		<p>
+			Pro Tenant-Repo schreibt der Bootstrap vier Files für app-spezifische
+			Config + Secrets. Plattform-Credentials (IPOffice etc.) bleiben in
+			den Shared-Bundles (siehe Sektion 5).
+		</p>
+		<table class="docs-table">
+			<thead><tr><th>Datei</th><th>Encrypted</th><th>Wofür</th></tr></thead>
+			<tbody>
+				<tr>
+					<td><code>.sops.yaml</code></td>
+					<td>—</td>
+					<td>Pinnt die drei MeKo Azure Key Vaults (dev / staging / prod) auf die <code>values.&lt;stage&gt;.sops.&lt;ext&gt;</code> Filename-Konvention. Nicht editieren.</td>
+				</tr>
+				<tr>
+					<td><code>values.env</code></td>
+					<td>nein</td>
+					<td>Plain non-secret defaults für alle Stages: <code>LOG_LEVEL</code>, Feature-Flags, public URLs.</td>
+				</tr>
+				<tr>
+					<td><code>values.sops.env</code></td>
+					<td>ja</td>
+					<td>Encrypted secrets für alle Stages: <code>STRIPE_API_KEY</code>, <code>DATABASE_URL</code>, etc.</td>
+				</tr>
+				<tr>
+					<td><code>AGENTS.md</code></td>
+					<td>—</td>
+					<td>AI-Agent-Anweisungen mit Repo-Konventionen + Link auf diese Doku.</td>
+				</tr>
+			</tbody>
+		</table>
+		<h3>Per-stage overlays (optional)</h3>
+		<p>
+			Wenn staging und prod unterschiedliche Werte brauchen, lege neben den
+			Base-Files zusätzliche Stage-Files an:
+		</p>
+		<ul>
+			<li><code>values.staging.env</code> / <code>values.staging.sops.env</code> — gegen staging-KV verschlüsselt</li>
+			<li><code>values.prod.env</code> / <code>values.prod.sops.env</code> — gegen prod-KV verschlüsselt</li>
+		</ul>
+		<p>
+			Das Chart merged zur Sync-Zeit:
+			<code>values.env</code> &lt; <code>values.&lt;stage&gt;.env</code> &lt;
+			<code>values.sops.env</code> &lt; <code>values.&lt;stage&gt;.sops.env</code>.
+			Spätere Files überschreiben gleichnamige Keys aus den vorigen.
+		</p>
+		<h3>sops einrichten</h3>
+		<ol>
+			<li>
+				<code>{ "brew install sops azure-cli  # macOS" }</code> oder
+				<code>apt install sops</code> + <code>az</code> CLI.
+			</li>
+			<li><code>az login</code> — sops zieht damit den Decrypt-Key aus dem MeKo Vault.</li>
+			<li>
+				Erste Bearbeitung:
+				<code>{ "sops --encrypt --in-place values.sops.env" }</code> verschlüsselt
+				den vom Bootstrap angelegten Plaintext-Scaffold. Spätere Edits direkt mit
+				<code>{ "sops values.sops.env" }</code> — sops öffnet die entschlüsselte
+				Datei im <code>$EDITOR</code>, encryptet beim Speichern wieder rein.
+			</li>
+		</ol>
+		<h3>Was der Pod sieht</h3>
+		<p>
+			Der Backend-Pod kriegt <code>envFrom</code> auf das gemergte Secret, plus
+			jedes shared_secrets-Bundle nebenan. Frontend-Pods bekommen nur die plain
+			<code>values.env</code>-Werte (Secrets dürfen nicht ins JS-Bundle).
+			Phase 2 dieser Pipeline (Argo CD config-management-plugin der die Files
+			einliest + decrypted) ist in Arbeit — Phase 1 ist der Bootstrap der die
+			Files anlegt; die Decryption hängt aktuell noch von Hand am vibe-coder.
+		</p>
+	</section>
+}
+
 templ docsSharedSecretsSection() {
 	<section class="docs-section" id="shared-secrets">
-		<h2>4. Shared secrets — IPOffice und Co.</h2>
+		<h2>5. Shared platform secrets — IPOffice und Co.</h2>
 		<p>
 			Die Platform veröffentlicht ein paar Standard-Credential-Bundles, die du
 			über das Registry-File aktivierst:
@@ -271,7 +368,7 @@ const pool = await sql.connect({
 
 templ docsWritableDirsSection() {
 	<section class="docs-section" id="writable-dirs">
-		<h2>5. Writable dirs (readOnlyRootFilesystem)</h2>
+		<h2>6. Writable dirs (readOnlyRootFilesystem)</h2>
 		<p>
 			Tenant-Pods laufen mit <code>readOnlyRootFilesystem: true</code>. Das Chart provisioniert
 			drei emptyDirs automatisch — <code>/tmp</code>, <code>/var/cache/nginx</code>, <code>/var/run</code> — der
@@ -311,7 +408,7 @@ writable_dirs:
 
 templ docsRetroSection() {
 	<section class="docs-section" id="retro">
-		<h2>6. Bestehende App nachträglich anbinden</h2>
+		<h2>7. Bestehende App nachträglich anbinden</h2>
 		<p>
 			Wenn ein Slug <em>vor</em> dem Bootstrap-Feature geclaimt wurde, fehlen
 			<code>test-pr-title.yml</code>, <code>release-please.yml</code> + Config-Dateien.
@@ -344,7 +441,7 @@ templ docsRetroSection() {
 
 templ docsFAQSection() {
 	<section class="docs-section" id="faq">
-		<h2>7. FAQ</h2>
+		<h2>8. FAQ</h2>
 		<details>
 			<summary>Wie wird mein Image deployed?</summary>
 			<p>
