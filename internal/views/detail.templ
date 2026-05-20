@@ -1,8 +1,15 @@
 package views
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/argocd"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/metrics"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/status"
 )
 
 // DetailProps holds the data rendered by the /app/<slug> page.
@@ -12,6 +19,137 @@ type DetailProps struct {
 	Prod    *argocd.Application
 	Tree    *argocd.ResourceTree
 	YAML    string
+	Tenant  *status.Tenant // metrics + drift + compliance bundle
+}
+
+// chartPoints turns a Snapshot's hourly buckets into a "<x>,<y> ..."
+// SVG polyline. viewBox is fixed at 800×200 so CSS can stretch it.
+func chartPoints(snap *metrics.Snapshot, lastN int) string {
+	if snap == nil {
+		return ""
+	}
+
+	vals := snap.SparklineHourly
+
+	if len(vals) > lastN {
+		vals = vals[len(vals)-lastN:]
+	}
+
+	if len(vals) == 0 {
+		return ""
+	}
+
+	var maxV int64
+	for _, v := range vals {
+		if v > maxV {
+			maxV = v
+		}
+	}
+
+	if maxV == 0 {
+		return ""
+	}
+
+	var pts strings.Builder
+	for i, v := range vals {
+		x := float64(i) / float64(len(vals)-1) * 800
+		y := 200 - float64(v)/float64(maxV)*190
+
+		fmt.Fprintf(&pts, "%.1f,%.1f ", x, y)
+	}
+
+	return strings.TrimSpace(pts.String())
+}
+
+// chartScale returns the largest bucket value (Y-axis upper bound) so
+// the template can label "peak" on the chart.
+func chartScale(snap *metrics.Snapshot, lastN int) int64 {
+	if snap == nil {
+		return 0
+	}
+
+	vals := snap.SparklineHourly
+
+	if len(vals) > lastN {
+		vals = vals[len(vals)-lastN:]
+	}
+
+	var maxV int64
+	for _, v := range vals {
+		if v > maxV {
+			maxV = v
+		}
+	}
+
+	return maxV
+}
+
+// chartSum returns the total requests across the window (sum of buckets).
+func chartSum(snap *metrics.Snapshot, lastN int) int64 {
+	if snap == nil {
+		return 0
+	}
+
+	vals := snap.SparklineHourly
+
+	if len(vals) > lastN {
+		vals = vals[len(vals)-lastN:]
+	}
+
+	var sum int64
+	for _, v := range vals {
+		sum += v
+	}
+
+	return sum
+}
+
+// chartHoursJSON marshals the slice of hourly buckets as `[N,N,N…]` for
+// embedding in a data-attr so the FE chart-tooltip can read individual
+// values. lastN matches the polyline.
+func chartHoursJSON(snap *metrics.Snapshot, lastN int) string {
+	if snap == nil {
+		return "[]"
+	}
+
+	vals := snap.SparklineHourly
+
+	if len(vals) > lastN {
+		vals = vals[len(vals)-lastN:]
+	}
+
+	var b strings.Builder
+	b.WriteByte('[')
+
+	for i, v := range vals {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+
+		b.WriteString(strconv.FormatInt(v, 10))
+	}
+
+	b.WriteByte(']')
+
+	return b.String()
+}
+
+// windowStartIsoString returns the ISO timestamp of the oldest bucket in
+// the window. Used by the FE for absolute-time hover labels.
+func windowStartIsoString(snap *metrics.Snapshot, lastN int) string {
+	if snap == nil || snap.CollectedAt.IsZero() {
+		return ""
+	}
+
+	hours := lastN
+
+	if len(snap.SparklineHourly) < lastN {
+		hours = len(snap.SparklineHourly)
+	}
+
+	start := snap.CollectedAt.Add(-time.Duration(hours) * time.Hour)
+
+	return start.UTC().Format(time.RFC3339)
 }
 
 templ Detail(page PageProps, props DetailProps) {
@@ -24,12 +162,20 @@ templ Detail(page PageProps, props DetailProps) {
 		} else {
 			<section class="hero">
 				<h1>{ props.App.Slug }</h1>
-				<p><a href="/">&larr; back to all apps</a></p>
+				<p>
+					<a href="/">&larr; back to all apps</a>
+					· tech: <strong>{ props.App.Owners.Technical }</strong>
+					· org: <strong>{ props.App.Owners.Organizational }</strong>
+					· <a href={ templ.URL(props.App.Repo.URL) }>{ props.App.Repo.URL }</a>
+				</p>
 			</section>
+			@detailTrafficCharts(props.Tenant)
 			<section class="card-grid">
-				@stageCard("staging", props.App.Stages.Staging.Host, props.Staging)
-				@stageCard("prod",    props.App.Stages.Prod.Host,    props.Prod)
+				@stageCard("staging", props.App.Stages.Staging.Host, props.Staging, props.Tenant)
+				@stageCard("prod",    props.App.Stages.Prod.Host,    props.Prod,    props.Tenant)
 			</section>
+			@detailDriftPanel(props.Tenant)
+			@detailCompliancePanel(props.Tenant)
 			<section class="resource-tree">
 				<h2>Resources</h2>
 				if props.Tree == nil || len(props.Tree.Nodes) == 0 {
@@ -58,11 +204,123 @@ templ Detail(page PageProps, props DetailProps) {
 				<h2>Registry entry</h2>
 				<pre><code>{ props.YAML }</code></pre>
 			</section>
+			<script src="/static/detail-chart.js" defer></script>
 		}
 	}
 }
 
-templ stageCard(name, host string, app *argocd.Application) {
+templ detailTrafficCharts(t *status.Tenant) {
+	if t != nil {
+		<section class="traffic-charts" id="traffic-charts">
+			<header class="traffic-charts__head">
+				<h2>Traffic</h2>
+				<div class="window-toggle" role="tablist" aria-label="Zeitfenster">
+					<button class="window-btn is-active" data-window="7" type="button">7 Tage</button>
+					<button class="window-btn" data-window="30" type="button">30 Tage</button>
+				</div>
+			</header>
+			@chartForStage(t, "staging")
+			@chartForStage(t, "prod")
+		</section>
+	}
+}
+
+templ chartForStage(t *status.Tenant, stage string) {
+	{{
+		s, ok := t.Stages[stage]
+		snap := (*metrics.Snapshot)(nil)
+		if ok { snap = s.Metrics }
+		pts7  := chartPoints(snap, 24*7)
+		pts30 := chartPoints(snap, 24*30)
+		sum7  := chartSum(snap, 24*7)
+		sum30 := chartSum(snap, 24*30)
+		peak7 := chartScale(snap, 24*7)
+		peak30 := chartScale(snap, 24*30)
+		startIso7  := windowStartIsoString(snap, 24*7)
+		startIso30 := windowStartIsoString(snap, 24*30)
+	}}
+	<article class="chart-card" data-stage={ stage }>
+		<header class="chart-card__head">
+			<h3>{ stage }</h3>
+			if snap != nil {
+				<span class="chart-card__stat"><strong data-stat-7={ strconv.FormatInt(sum7, 10) } data-stat-30={ strconv.FormatInt(sum30, 10) }>{ fmtCount(sum7) }</strong> req</span>
+				<span class="chart-card__stat muted">peak/h: <strong data-peak-7={ strconv.FormatInt(peak7, 10) } data-peak-30={ strconv.FormatInt(peak30, 10) }>{ fmtCount(peak7) }</strong></span>
+			} else {
+				<small class="muted">Noch keine Prometheus-Daten.</small>
+			}
+		</header>
+		<div class="chart-frame">
+			<svg
+				class="chart-svg"
+				viewBox="0 0 800 200"
+				preserveAspectRatio="none"
+				role="img"
+				aria-label={ fmt.Sprintf("Requests/Stunde für %s", stage) }
+				data-points-7={ pts7 }
+				data-points-30={ pts30 }
+				data-hours-7={ chartHoursJSON(snap, 24*7) }
+				data-hours-30={ chartHoursJSON(snap, 24*30) }
+				data-start-7={ startIso7 }
+				data-start-30={ startIso30 }
+			>
+				<rect class="chart-bg" x="0" y="0" width="800" height="200"/>
+				if pts7 != "" {
+					<polyline class="chart-line" points={ pts7 } fill="none"/>
+				}
+				<g class="chart-hover" hidden>
+					<line class="chart-cursor" x1="0" x2="0" y1="0" y2="200"/>
+					<circle class="chart-dot" cx="0" cy="0" r="3"/>
+				</g>
+			</svg>
+			<div class="chart-tooltip" hidden></div>
+		</div>
+	</article>
+}
+
+templ detailDriftPanel(t *status.Tenant) {
+	if t != nil && len(t.Drift) > 0 {
+		<section class="drift-panel detail-section">
+			<h2>Drift staging → prod</h2>
+			<table class="drift-table">
+				<thead><tr><th></th><th>staging</th><th>prod</th><th>Ahead</th></tr></thead>
+				<tbody>
+					for _, comp := range []string{"backend", "frontend"} {
+						{{ s, ok := t.Drift[comp] }}
+						if ok {
+							<tr>
+								<th>{ comp }</th>
+								<td><code>{ s.StagingTag }</code></td>
+								<td><code>{ s.ProdTag }</code></td>
+								<td>{ driftLabel(s) }</td>
+							</tr>
+						}
+					}
+				</tbody>
+			</table>
+		</section>
+	}
+}
+
+templ detailCompliancePanel(t *status.Tenant) {
+	if t != nil && len(t.Compliance) > 0 {
+		<section class="compliance-panel detail-section">
+			<h2>Compliance</h2>
+			<ul>
+				for _, r := range t.Compliance {
+					<li>
+						<span class={ "badge", "badge--" + complianceCls(r.Status) }>{ string(r.Status) }</span>
+						<code>{ r.CheckName }</code>
+						if r.Details != "" {
+							<small> — { r.Details }</small>
+						}
+					</li>
+				}
+			</ul>
+		</section>
+	}
+}
+
+templ stageCard(name, host string, app *argocd.Application, t *status.Tenant) {
 	<article class="card">
 		<header>
 			<h2>{ name }</h2>
@@ -78,6 +336,27 @@ templ stageCard(name, host string, app *argocd.Application) {
 				<dt>Path</dt>     <dd><code>{ app.Spec.Source.Path }</code></dd>
 				<dt>Namespace</dt><dd><code>{ app.Spec.Destination.Namespace }</code></dd>
 			</dl>
+			@stageMetricsBlock(t, name)
 		}
 	</article>
+}
+
+templ stageMetricsBlock(t *status.Tenant, stage string) {
+	if t != nil {
+		{{
+			s, ok := t.Stages[stage]
+			snap := (*metrics.Snapshot)(nil)
+			if ok { snap = s.Metrics }
+		}}
+		if snap != nil {
+			<dl>
+				<dt>24h</dt><dd>{ fmtCount(snap.Requests24h) } req</dd>
+				<dt>7d</dt><dd>{ fmtCount(snap.Requests7d) } req</dd>
+				<dt>letzter Request</dt><dd>{ fmtAgo(snap.LastRequestAt) }</dd>
+				<dt>5xx</dt><dd>{ fmtPct(snap.ErrorRate5xx) }</dd>
+				<dt>Restarts (24h)</dt><dd>{ strconv.FormatInt(snap.Restarts24h, 10) }</dd>
+				<dt>Memory</dt><dd>{ fmtBytes(snap.MemoryUsedBytes) } / { fmtBytes(snap.MemoryLimitBytes) }</dd>
+			</dl>
+		}
+	}
 }

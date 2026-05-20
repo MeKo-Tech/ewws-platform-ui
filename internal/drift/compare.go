@@ -2,10 +2,17 @@
 // staging and prod stages, using the GitHub compare API as the source of
 // truth ("staging is N commits ahead of prod").
 //
-// Tag values (e.g. `v1.2.3` or a 40-char SHA) flow in from the registry
-// App.Images.Backend.Tag.{Staging,Prod}; the compare API accepts either
-// shape directly — no resolve-tag-to-SHA round-trip required for tags
-// that exist on the remote.
+// Tag values flow in from the registry App.Images.<C>.Tag.{Staging,Prod}.
+// The image-tag convention used by every MeKo-Tech repo is:
+//
+//	`sha-<7..40 hex>` — newest-build (chungus image-updater rolling tip),
+//	                    OR the literal short SHA chopped off → we hand that
+//	                    SHA straight to the compare API
+//	`v?\d+\.\d+\.\d+`  — release-please semver tag — fed verbatim
+//
+// `normalizeRef` peels the `sha-` prefix so the GitHub compare API
+// recognizes the ref (it indexes commits by SHA, not arbitrary tag
+// strings). Anything else (semver, branch name) passes through.
 package drift
 
 import (
@@ -14,9 +21,21 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	gh "github.com/google/go-github/v68/github"
 )
+
+// normalizeRef converts a registry image-tag value into a git ref the
+// GitHub compare API understands. `sha-<hex>` → `<hex>`; everything else
+// passes through unchanged. Caller checks for empty.
+func normalizeRef(tag string) string {
+	if strings.HasPrefix(tag, "sha-") {
+		return strings.TrimPrefix(tag, "sha-")
+	}
+
+	return tag
+}
 
 // Fetcher resolves "how many commits is staging ahead of prod" via the
 // GitHub /repos/{o}/{r}/compare endpoint.
@@ -40,6 +59,9 @@ func (f *Fetcher) CommitsAhead(
 	if owner == "" || repo == "" || prodRef == "" || stagingRef == "" {
 		return 0, nil
 	}
+
+	prodRef = normalizeRef(prodRef)
+	stagingRef = normalizeRef(stagingRef)
 
 	if prodRef == stagingRef {
 		return 0, nil

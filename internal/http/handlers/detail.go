@@ -7,14 +7,18 @@ import (
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/argocd"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/config"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/status"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/views"
 )
 
-// Detail renders the per-app page.
+// Detail renders the per-app page. Combines the registry claim YAML,
+// the Argo CD Application objects per stage, the per-stage metrics
+// snapshot (traffic, restarts, sparkline 30d), and the resource tree.
 type Detail struct {
-	Cfg    *config.Config
-	Argo   *argocd.Client
-	Logger *slog.Logger
+	Cfg        *config.Config
+	Argo       *argocd.Client
+	Aggregator *status.Aggregator
+	Logger     *slog.Logger
 }
 
 func (h Detail) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -61,12 +65,26 @@ func (h Detail) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tree = t
 	}
 
+	// Aggregate the rich slice (metrics + drift + compliance) for this
+	// one tenant. The Aggregator already knows how to merge everything
+	// for any app — we just hand it a single-element slice.
+	var tenant *status.Tenant
+
+	if h.Aggregator != nil {
+		all := h.Aggregator.BuildAll(ctx, []registry.App{*app})
+		if len(all) > 0 {
+			t := all[0]
+			tenant = &t
+		}
+	}
+
 	render(w, r, views.Detail(props, views.DetailProps{
 		App:     app,
 		Staging: staging,
 		Prod:    prod,
 		Tree:    tree,
 		YAML:    string(yamlBytes),
+		Tenant:  tenant,
 	}))
 }
 

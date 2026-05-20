@@ -66,7 +66,7 @@ func registerPages(mux *http.ServeMux, d Deps) {
 	landing := handlers.Landing{Cfg: d.Cfg, Aggregator: d.Aggregator, Logger: d.Logger}
 	mux.Handle("GET /{$}", landing)
 
-	detail := handlers.Detail{Cfg: d.Cfg, Argo: d.Argo, Logger: d.Logger}
+	detail := handlers.Detail{Cfg: d.Cfg, Argo: d.Argo, Aggregator: d.Aggregator, Logger: d.Logger}
 	mux.Handle("GET /app/{slug}", detail)
 
 	claim := handlers.Claim{Cfg: d.Cfg, Reserved: d.Reserved, Logger: d.Logger}
