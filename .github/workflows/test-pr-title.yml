@@ -1,0 +1,17 @@
+name: test-pr-title
+
+# Conventional Commits gate on PR titles. release-please keys off the
+# title prefix to decide what kind of version bump (or no bump) the
+# merge produces — a wrong title means no release ever cuts. Reuses
+# the org-wide config in MeKo-Tech/ewws-workflows.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate:
+    uses: MeKo-Tech/ewws-workflows/.github/workflows/test-pr-title.yml@main
