@@ -74,6 +74,11 @@ func registerPages(mux *http.ServeMux, d Deps) {
 	mux.Handle("POST /claim", claim)
 
 	mux.Handle("GET /docs", handlers.Docs{})
+
+	mux.Handle("POST /app/{slug}/bootstrap", handlers.BootstrapRepo{
+		Cfg:    d.Cfg,
+		Logger: d.Logger,
+	})
 }
 
 func registerAuth(mux *http.ServeMux, d Deps) {

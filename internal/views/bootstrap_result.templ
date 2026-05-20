@@ -1,0 +1,81 @@
+package views
+
+import "github.com/MeKo-Tech/ewws-platform-ui/internal/repobootstrap"
+
+// BootstrapResult is the HTMX-swap payload returned by the retro-bootstrap
+// endpoint. Rendered into the placeholder div on the detail page.
+templ BootstrapResult(actions []repobootstrap.Action) {
+	<div class="bootstrap-result">
+		<h3>Bootstrap-Ergebnis</h3>
+		<ul>
+			for _, a := range actions {
+				<li>
+					<span class={ "badge", "badge--" + bootstrapCls(a.Status) }>{ string(a.Status) }</span>
+					{ a.Name }
+					if a.Path != "" {
+						<small>— <code>{ a.Path }</code></small>
+					}
+					if a.Message != "" {
+						<small>— { a.Message }</small>
+					}
+				</li>
+			}
+		</ul>
+		<p class="muted"><small>
+			Status-Werte: <code>applied</code> = neu geschrieben · <code>skipped</code> = war schon
+			da · <code>failed</code> = GitHub hat Nein gesagt (Details im Message). Die
+			Compliance-Spalte auf der Landing-Seite aktualisiert sich beim nächsten
+			Scanner-Tick (1 h).
+		</small></p>
+	</div>
+}
+
+func bootstrapCls(s repobootstrap.Status) string {
+	switch s {
+	case repobootstrap.StatusApplied:
+		return "ok"
+	case repobootstrap.StatusSkipped:
+		return "unknown"
+	case repobootstrap.StatusFailed:
+		return "error"
+	default:
+		return "unknown"
+	}
+}
+
+// BootstrapButton is a small action card embedded on the detail page.
+// Visible only when the viewer has a session — anonymous users can't
+// see the trigger because the endpoint requires their OAuth token.
+templ BootstrapButton(slug string, user *SessionUser) {
+	if user != nil {
+		<section class="detail-section bootstrap-section">
+			<h2>Repo-Bootstrap</h2>
+			<p>
+				Schreibt die Standard-Workflows in das Source-Repo dieses Tenants:
+				<code>test-pr-title.yml</code>, <code>release-please.yml</code> +
+				<code>release-please-config.json</code> + Manifest, plus Branch-Protection
+				auf <code>main</code>. Idempotent — bereits vorhandene Files werden
+				übersprungen, nicht überschrieben.
+			</p>
+			<button
+				type="button"
+				class="bootstrap-btn"
+				hx-post={ "/app/" + slug + "/bootstrap" }
+				hx-target="#bootstrap-result"
+				hx-swap="innerHTML"
+				hx-confirm="Bootstrap-Workflows in das Source-Repo schreiben?"
+			>
+				Bootstrap ausführen
+			</button>
+			<div id="bootstrap-result"></div>
+		</section>
+	} else {
+		<section class="detail-section bootstrap-section">
+			<h2>Repo-Bootstrap</h2>
+			<p class="muted">
+				<a href="/auth/login">Mit GitHub einloggen</a>, dann kannst du den Bootstrap
+				direkt von hier triggern.
+			</p>
+		</section>
+	}
+}
