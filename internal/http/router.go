@@ -72,6 +72,8 @@ func registerPages(mux *http.ServeMux, d Deps) {
 	claim := handlers.Claim{Cfg: d.Cfg, Reserved: d.Reserved, Logger: d.Logger}
 	mux.Handle("GET /claim", claim)
 	mux.Handle("POST /claim", claim)
+
+	mux.Handle("GET /docs", handlers.Docs{})
 }
 
 func registerAuth(mux *http.ServeMux, d Deps) {

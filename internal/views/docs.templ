@@ -1,0 +1,396 @@
+package views
+
+// Docs is the long-form onboarding + best-practice page rendered at /docs.
+// Pure static content — no per-tenant state, no scanners — so we just
+// inline everything in the template and let the layout's CSS handle
+// readable typography.
+templ Docs(props PageProps) {
+	@Layout(props) {
+		<section class="hero">
+			<h1>Platform docs</h1>
+			<p>
+				Was beim Claim passiert, welche Konventionen die Platform erwartet,
+				und wie du eine bestehende App nachträglich an die Standards anbindest.
+			</p>
+		</section>
+
+		<nav class="docs-toc" aria-label="Inhaltsverzeichnis">
+			<ol>
+				<li><a href="#claim">1. Einen neuen Slug claimen</a></li>
+				<li><a href="#bootstrap">2. Was der Bootstrap in dein Repo schreibt</a></li>
+				<li><a href="#image-tags">3. Image-Tag-Konventionen</a></li>
+				<li><a href="#shared-secrets">4. Shared secrets (z.B. IPOffice)</a></li>
+				<li><a href="#writable-dirs">5. Writable dirs (readOnlyRootFilesystem)</a></li>
+				<li><a href="#retro">6. Bestehende App nachträglich anbinden</a></li>
+				<li><a href="#faq">7. FAQ</a></li>
+			</ol>
+		</nav>
+
+		@docsClaimSection()
+		@docsBootstrapSection()
+		@docsImageTagsSection()
+		@docsSharedSecretsSection()
+		@docsWritableDirsSection()
+		@docsRetroSection()
+		@docsFAQSection()
+	}
+}
+
+templ docsClaimSection() {
+	<section class="docs-section" id="claim">
+		<h2>1. Einen neuen Slug claimen</h2>
+		<p>
+			Über das <a href="/claim">Claim-Formular</a> trägst du Slug, Owner, Repo-URL und
+			Ressourcen-Limits ein. Submit öffnet einen PR gegen
+			<a href="https://github.com/MeKo-Tech/ewws-apps-registry"><code>ewws-apps-registry</code></a>
+			mit deinem <code>apps/&lt;slug&gt;.yaml</code>. Nach dem Merge — typischerweise binnen Minuten — bemerkt Argo CD
+			das neue File via <code>vibe-tenants</code> ApplicationSet und legt zwei Applications
+			(<code>&lt;slug&gt;-staging</code> und <code>&lt;slug&gt;-prod</code>) plus zwei Namespaces
+			(<code>tenant-&lt;slug&gt;-staging|prod</code>) an.
+		</p>
+		<h3>Slug-Regeln</h3>
+		<ul>
+			<li>DNS-safe lowercase: <code>^[a-z][a-z0-9-]&#123;2,30&#125;[a-z0-9]$</code></li>
+			<li>Muss eindeutig sein und darf nicht reserviert sein (siehe <a href="https://github.com/MeKo-Tech/ewws-apps-registry/blob/main/reserved-slugs.yaml"><code>reserved-slugs.yaml</code></a>)</li>
+			<li>Wird zur Subdomain: <code>&lt;slug&gt;.apps.meko.dev</code> (staging) und <code>&lt;slug&gt;.apps.meko.work</code> (prod)</li>
+		</ul>
+		<h3>Was du vorbereiten solltest</h3>
+		<ul>
+			<li>Repo bei <code>MeKo-Tech/&lt;Name&gt;</code> mit (optional) <code>Dockerfile</code> für Backend und/oder Frontend</li>
+			<li>GitHub-Login des technical owner und organizational owner</li>
+			<li>Eine erste Image-Version (sha-Tag oder Semver) — du kannst <code>0.0.0</code> als Platzhalter eintragen, image-updater bumpt die Werte sobald ein passender Tag auf <code>ghcr.io</code> erscheint</li>
+		</ul>
+	</section>
+}
+
+templ docsBootstrapSection() {
+	<section class="docs-section" id="bootstrap">
+		<h2>2. Was der Bootstrap in dein Repo schreibt</h2>
+		<p>
+			Wenn der Claim-PR akzeptiert wird, schreibt das Platform-UI auf Wunsch fünf Files
+			in das angegebene Source-Repo (ein eigener PR, du musst manuell mergen):
+		</p>
+		<table class="docs-table">
+			<thead>
+				<tr><th>Datei</th><th>Inhalt</th><th>Wozu</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td><code>.github/workflows/test-pr-title.yml</code></td>
+					<td>
+						<code>{ "uses: MeKo-Tech/ewws-workflows/.github/workflows/test-pr-title.yml@v1" }</code>
+					</td>
+					<td>Erzwingt Conventional-Commits PR-Titel — release-please bumpt sonst nichts.</td>
+				</tr>
+				<tr>
+					<td><code>.github/workflows/release-please.yml</code></td>
+					<td>
+						<code>{ "uses: …/release-please.yml@v1" }</code> mit <code>config-file</code> + <code>manifest-file</code>
+					</td>
+					<td>Cuttet automatisch Release-PRs aus den Conventional Commits.</td>
+				</tr>
+				<tr>
+					<td><code>release-please-config.json</code></td>
+					<td>Single-package, <code>release-type: simple</code>, Version aus <code>version.txt</code></td>
+					<td>Konfiguriert release-please für dein Repo.</td>
+				</tr>
+				<tr>
+					<td><code>.release-please-manifest.json</code></td>
+					<td><code>{ `{".": "0.0.0"}` }</code> — Start-Version</td>
+					<td>release-please tracked hier den aktuellen Stand.</td>
+				</tr>
+				<tr>
+					<td>Branch protection <code>main</code></td>
+					<td>require PR + admin-bypass</td>
+					<td>Kein direkter Push auf main.</td>
+				</tr>
+			</tbody>
+		</table>
+		<p>
+			Du brauchst zusätzlich (nicht vom Bootstrap geschrieben — das ist dein Build-Workflow):
+		</p>
+		<pre><code>{ docsBuildAndPushSnippet() }</code></pre>
+		<p>
+			Damit hast du multi-arch (amd64 + arm64) Builds auf <code>ghcr.io/meko-tech/&lt;repo&gt;</code> mit der Tag-Konvention
+			die das Dashboard erwartet.
+		</p>
+	</section>
+}
+
+func docsBuildAndPushSnippet() string {
+	return `# .github/workflows/docker.yml
+
+name: docker
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    uses: MeKo-Tech/ewws-workflows/.github/workflows/build-and-push.yml@v1
+    with:
+      image-name: ghcr.io/meko-tech/<repo>
+`
+}
+
+templ docsImageTagsSection() {
+	<section class="docs-section" id="image-tags">
+		<h2>3. Image-Tag-Konventionen</h2>
+		<p>
+			Die Reusable <code>build-and-push.yml</code> schreibt diese Tags auf <code>ghcr.io</code>:
+		</p>
+		<ul>
+			<li><code>sha-&lt;7&gt;</code> — Git-Short-SHA der gebauten Revision. <strong>image-updater nimmt das für staging.</strong></li>
+			<li><code>vX.Y.Z</code> + <code>vX.Y</code> + <code>vX</code> — bei semver-Releases. <strong>image-updater nimmt das für prod.</strong></li>
+			<li><code>main</code> — moving Branch-Pointer, vom Dashboard nicht konsumiert.</li>
+			<li><code>pr-&lt;n&gt;</code> — pro PR, hilfreich fürs manuelle Testen.</li>
+		</ul>
+		<p>
+			Im Registry-File stehen <strong>per-Stage</strong>-Tags:
+		</p>
+		<pre><code>{ docsImagesYAMLSnippet() }</code></pre>
+		<p>
+			image-updater (chungus, alle 2 Minuten) schreibt staging→prod unabhängig.
+			Auf der <a href="/">Landing-Seite</a> siehst du Commit-Drift zwischen staging und prod.
+		</p>
+	</section>
+}
+
+func docsImagesYAMLSnippet() string {
+	return `images:
+  backend:
+    repository: ghcr.io/meko-tech/foo-backend
+    tag:
+      staging: sha-c69034c    # bumped to newest sha-* by image-updater
+      prod:    0.6.0          # bumped to newest semver by image-updater
+  frontend:
+    repository: ghcr.io/meko-tech/foo-frontend
+    tag:
+      staging: sha-c69034c
+      prod:    0.6.0
+`
+}
+
+templ docsSharedSecretsSection() {
+	<section class="docs-section" id="shared-secrets">
+		<h2>4. Shared secrets — IPOffice und Co.</h2>
+		<p>
+			Die Platform veröffentlicht ein paar Standard-Credential-Bundles, die du
+			über das Registry-File aktivierst:
+		</p>
+		<pre><code>{ docsSharedSecretsYAMLSnippet() }</code></pre>
+		<p>
+			Jedes Bundle ist ein Kubernetes-Secret, das <code>kubernetes-replicator</code> aus dem
+			<code>platform-shared-secrets</code> Namespace in dein Tenant-Namespace kopiert.
+			Die <strong>Backend</strong>-Pods bekommen das automatisch via <code>envFrom</code>; Frontend-Pods nicht
+			(API-Aufrufe gehen über den Backend-Proxy).
+		</p>
+		<h3>Catalogue (Stand 2026-05)</h3>
+		<table class="docs-table">
+			<thead><tr><th>Name</th><th>Env-Vars</th><th>Wofür</th></tr></thead>
+			<tbody>
+				<tr>
+					<td><code>ipoffice-readonly</code></td>
+					<td>
+						<code>IPOFFICE_DB_HOST</code>, <code>_PORT</code>, <code>_NAME</code>,
+						<code>_USER</code>, <code>_PASSWORD</code>, <code>_DSN</code>
+					</td>
+					<td>MSSQL read-only auf den IPOffice-Datenbestand (192.168.30.116:1433, DB <code>MEKOAVDATSQL</code>).</td>
+				</tr>
+			</tbody>
+		</table>
+		<h3 id="ipoffice-migration">IPOffice: Windows-Auth → SQL-Auth</h3>
+		<div class="docs-callout">
+			<strong>Wichtig für Radialforce-Plotter und ähnliche Apps:</strong>
+			Wenn dein Code <em>Integrated Authentication</em> (Windows-Login) gegen MSSQL nutzt,
+			fliegt das in Linux-Containern auf chungus. Symptom:
+			<code>"IPO customer lookup is only supported on Windows"</code> oder ähnliche Fehler.
+			Die Lösung: Wechsel zu SQL-Auth über die env-vars oben.
+		</div>
+		<p>Pattern in Go (mit <code>microsoft/go-mssqldb</code>):</p>
+		<pre><code>{ docsIPOfficeGoSnippet() }</code></pre>
+		<p>Pattern in Node (mit <code>mssql</code>):</p>
+		<pre><code>{ docsIPOfficeNodeSnippet() }</code></pre>
+		<p>
+			Wenn du <code>_DSN</code> direkt füttern kannst (z.B. <code>pyodbc</code>), nimm
+			einfach <code>IPOFFICE_DB_DSN</code> — da steht der komplette
+			Connection-String drin.
+		</p>
+	</section>
+}
+
+func docsSharedSecretsYAMLSnippet() string {
+	return `# in apps/<slug>.yaml
+shared_secrets:
+  - ipoffice-readonly
+`
+}
+
+func docsIPOfficeGoSnippet() string {
+	return `import (
+  "database/sql"
+  "fmt"
+  "os"
+
+  _ "github.com/microsoft/go-mssqldb"
+)
+
+func openIPOffice() (*sql.DB, error) {
+  dsn := fmt.Sprintf(
+    "server=%s;port=%s;database=%s;user id=%s;password=%s;encrypt=disable",
+    os.Getenv("IPOFFICE_DB_HOST"),
+    os.Getenv("IPOFFICE_DB_PORT"),
+    os.Getenv("IPOFFICE_DB_NAME"),
+    os.Getenv("IPOFFICE_DB_USER"),
+    os.Getenv("IPOFFICE_DB_PASSWORD"),
+  )
+  return sql.Open("sqlserver", dsn)
+}
+`
+}
+
+func docsIPOfficeNodeSnippet() string {
+	return `import sql from 'mssql';
+
+const pool = await sql.connect({
+  server:   process.env.IPOFFICE_DB_HOST,
+  port:     parseInt(process.env.IPOFFICE_DB_PORT ?? '1433', 10),
+  database: process.env.IPOFFICE_DB_NAME,
+  user:     process.env.IPOFFICE_DB_USER,
+  password: process.env.IPOFFICE_DB_PASSWORD,
+  options:  { encrypt: false, trustServerCertificate: true },
+});
+`
+}
+
+templ docsWritableDirsSection() {
+	<section class="docs-section" id="writable-dirs">
+		<h2>5. Writable dirs (readOnlyRootFilesystem)</h2>
+		<p>
+			Tenant-Pods laufen mit <code>readOnlyRootFilesystem: true</code>. Das Chart provisioniert
+			drei emptyDirs automatisch — <code>/tmp</code>, <code>/var/cache/nginx</code>, <code>/var/run</code> — der
+			Rest ist read-only.
+		</p>
+		<p>
+			Wenn deine App beim Startup zusätzliche Pfade beschreibt (Cache-Dirs, generierte
+			Config, Templates), trage sie in das Claim-File ein:
+		</p>
+		<pre><code>{ docsWritableDirsSnippet() }</code></pre>
+		<p>
+			Das Chart legt pro Eintrag ein emptyDir (16 MiB) + Mount an. Häufige Fälle:
+		</p>
+		<ul>
+			<li>
+				<strong>Stock nginx FE</strong>: <code>/etc/nginx/conf.d</code>. Der upstream Entrypoint rendert
+				vhost-Templates dorthin. Chart 1.7.0+ bringt zusätzlich eine Standard-<code>nginx.conf</code>
+				mit <code>worker_processes 1</code> mit, damit das FE nicht im 64Mi-Limit OOMt.
+			</li>
+			<li>
+				<strong>Apps die ihre Config selber generieren</strong>: <code>/app/backend/data</code> oder
+				ähnlich (Markus' Radialforce-Plotter).
+			</li>
+		</ul>
+	</section>
+}
+
+func docsWritableDirsSnippet() string {
+	return `# in apps/<slug>.yaml
+writable_dirs:
+  backend:
+    - /app/backend/data
+  frontend:
+    - /etc/nginx/conf.d
+`
+}
+
+templ docsRetroSection() {
+	<section class="docs-section" id="retro">
+		<h2>6. Bestehende App nachträglich anbinden</h2>
+		<p>
+			Wenn ein Slug <em>vor</em> dem Bootstrap-Feature geclaimt wurde, fehlen
+			<code>test-pr-title.yml</code>, <code>release-please.yml</code> + Config-Dateien.
+			Der Compliance-Scanner flagt das als "3 offen" auf der <a href="/">Landing-Seite</a>.
+			Drei Wege das zu fixen:
+		</p>
+		<h3>Option A — neu durch den Claim-Flow</h3>
+		<p>
+			Nochmal das <a href="/claim">Claim-Formular</a> öffnen, denselben Slug eingeben und
+			"existing app" markieren. Das Platform-UI öffnet einen PR im Source-Repo
+			mit den fehlenden Files (kein Duplicate-Schreiben — bestehende Files bleiben
+			unangetastet). Wenn du den PR mergst, sind die Compliance-Checks grün.
+		</p>
+		<h3>Option B — von Hand kopieren</h3>
+		<p>
+			Die Templates sind kurz; du kannst sie direkt aus einem bereits-bootstrappten Repo
+			kopieren (z.B. <a href="https://github.com/MeKo-Tech/ewws-apps-registry/blob/main/.github/workflows/test-pr-title.yml"><code>ewws-apps-registry</code></a>).
+			Wichtig: <code>{ "uses: MeKo-Tech/ewws-workflows/.github/workflows/test-pr-title.yml@v1" }</code>
+			— pinne immer <code>{ "@v1" }</code>, nicht <code>{ "@main" }</code>.
+		</p>
+		<h3>Option C — Branch-Protection separat</h3>
+		<p>
+			Falls dir nur die <code>branch_protection_main</code> Compliance-Zeile fehlt, brauchst du
+			keine Code-Änderung. Im Repo-Settings unter "Branches" → "Add rule" → Pattern <code>main</code>
+			→ "Require a pull request before merging" + "Allow admin bypass" anhaken. Das ewws-Baseline-Ruleset
+			deckt das normalerweise per default ab.
+		</p>
+	</section>
+}
+
+templ docsFAQSection() {
+	<section class="docs-section" id="faq">
+		<h2>7. FAQ</h2>
+		<details>
+			<summary>Wie wird mein Image deployed?</summary>
+			<p>
+				image-updater (Argo-CD-Sidecar auf chungus, alle 2 min) scannt
+				<code>ghcr.io/meko-tech/&lt;repo&gt;</code> nach neuen Tags. Findet er einen passenden
+				(sha-* für staging, semver für prod), schreibt er den Tag-Wert ins
+				Registry-File. Argo CD bemerkt das beim nächsten Reconcile und rollt
+				deine Deployment-Spec auf den neuen Tag.
+			</p>
+		</details>
+		<details>
+			<summary>Warum sehe ich auf dem Dashboard 0 Requests?</summary>
+			<p>
+				Drei Möglichkeiten:
+				(1) Prometheus scrappt traefik erst seit kurzem — <code>increase([24h])</code> braucht
+				zwei Datenpunkte 24h auseinander. Geduld.
+				(2) Dein Slug matched den Service-Label-Regex nicht — selten, aber lass den
+				Platform-Owner kurz prüfen.
+				(3) Deine App hat tatsächlich keinen Traffic — siehe die "verwaist"-Klassifikation.
+			</p>
+		</details>
+		<details>
+			<summary>Wie lösche ich einen Slug?</summary>
+			<p>
+				PR gegen ewws-apps-registry der <code>apps/&lt;slug&gt;.yaml</code> entfernt. Argo CD prunt
+				die Applications + Namespaces. Den slug danach in
+				<a href="https://github.com/MeKo-Tech/ewws-apps-registry/blob/main/reserved-slugs.yaml"><code>reserved-slugs.yaml</code></a>
+				eintragen, damit er nicht wieder freigegeben wird (siehe <code>argo-cd-test</code> Beispiel).
+			</p>
+		</details>
+		<details>
+			<summary>Kann ich custom Domains bekommen?</summary>
+			<p>
+				Im Claim-File <code>features.custom_domains: [foo.bar.com]</code>. Du musst zusätzlich
+				bei DNS einen CNAME auf <code>&lt;slug&gt;.apps.meko.work</code> setzen und ein
+				dediziertes <code>Certificate</code> CR im Platform-Namespace anlegen
+				(Platform-Owner machen das einmalig).
+			</p>
+		</details>
+		<details>
+			<summary>Was ist mit Backend-only oder Frontend-only Apps?</summary>
+			<p>
+				<code>repo.has_backend: false</code> oder <code>repo.has_frontend: false</code>. Das Chart
+				skipt dann das jeweilige Deployment. Backend-only ohne Frontend kriegt
+				den Apex-Host auf <code>/</code> statt <code>/api</code>.
+			</p>
+		</details>
+	</section>
+}
