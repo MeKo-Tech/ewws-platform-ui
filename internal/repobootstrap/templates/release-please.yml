@@ -1,9 +1,13 @@
 name: release-please
 
+# Cuts release PRs + semver tags from Conventional Commits. Reuses the
+# org-wide workflow in MeKo-Tech/ewws-workflows; release-please-config
+# + manifest below are passed in so the reusable knows which file to
+# manage (multi-package layout — single-package also works).
+
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: write
@@ -11,9 +15,7 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
-    steps:
-      # googleapis/release-please-action v4.1.4 — pinned by SHA.
-      - uses: googleapis/release-please-action@a02a34c4d625f9be7cb89156071d8567266a2445
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+    uses: MeKo-Tech/ewws-workflows/.github/workflows/release-please.yml@main
+    with:
+      config-file: release-please-config.json
+      manifest-file: .release-please-manifest.json

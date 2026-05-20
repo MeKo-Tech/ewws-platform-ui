@@ -1,34 +1,16 @@
 name: test-pr-title
 
+# Conventional Commits gate on PR titles. Reuses the org-wide workflow
+# in MeKo-Tech/ewws-workflows so the regex + action-SHA pinning live
+# in one place across all ewws-tagged repos.
+
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
 
 permissions:
-  contents: read
+  pull-requests: read
 
 jobs:
-  test-pr-title:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Validate conventional commit format
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          pattern='^(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([^ )]+\))?(!)?: .+$'
-          if echo "$PR_TITLE" | grep -Pq "$pattern"; then
-            echo "PR title follows conventional commit format"
-          else
-            echo "PR title does not follow conventional commit format"
-            echo ""
-            echo "  Got: $PR_TITLE"
-            echo ""
-            echo "  Expected: type[(scope)][!]: description"
-            echo "  Types: feat, fix, refactor, docs, test, chore, perf, ci, build, style, revert"
-            echo "  (scope and ! are optional)"
-            echo "  Examples:"
-            echo "    feat: add batch export endpoint"
-            echo "    feat(api): support custom ingress paths"
-            echo "    fix: correct probe target list"
-            exit 1
-          fi
+  validate:
+    uses: MeKo-Tech/ewws-workflows/.github/workflows/test-pr-title.yml@main
