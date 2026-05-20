@@ -14,4 +14,4 @@ permissions:
 
 jobs:
   validate:
-    uses: MeKo-Tech/ewws-workflows/.github/workflows/test-pr-title.yml@main
+    uses: MeKo-Tech/ewws-workflows/.github/workflows/test-pr-title.yml@v1

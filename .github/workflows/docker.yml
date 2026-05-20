@@ -16,6 +16,6 @@ permissions:
 
 jobs:
   build:
-    uses: MeKo-Tech/ewws-workflows/.github/workflows/build-and-push.yml@main
+    uses: MeKo-Tech/ewws-workflows/.github/workflows/build-and-push.yml@v1
     with:
       image-name: ghcr.io/meko-tech/ewws-platform-ui
