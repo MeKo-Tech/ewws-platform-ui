@@ -168,6 +168,7 @@ func toViewActions(actions []repobootstrap.Action) []views.ClaimAction {
 			Message: a.Message,
 		})
 	}
+
 	return out
 }
 
@@ -184,7 +185,12 @@ func (h Claim) bootstrapRepo(
 ) []repobootstrap.Action {
 	owner, repo, err := registry.ParseGitHubURL(input.RepoURL)
 	if err != nil {
-		h.Logger.Warn("skip bootstrap — bad repo URL", slog.String("url", input.RepoURL), slog.Any("err", err))
+		h.Logger.Warn(
+			"skip bootstrap — bad repo URL",
+			slog.String("url", input.RepoURL),
+			slog.Any("err", err),
+		)
+
 		return []repobootstrap.Action{{
 			Name:    "Bootstrap target repo",
 			Status:  repobootstrap.StatusFailed,

@@ -42,15 +42,18 @@ func (h PartialCompliance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	pass, fail, errs := 0, 0, 0
 	tooltip := ""
+
 	for _, res := range results {
 		switch res.Status {
 		case compliance.StatusPass:
 			pass++
 		case compliance.StatusFail:
 			fail++
+
 			if tooltip != "" {
 				tooltip += "; "
 			}
+
 			tooltip += res.CheckName + ": " + res.Details
 		case compliance.StatusError:
 			errs++
@@ -59,6 +62,7 @@ func (h PartialCompliance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	label := fmt.Sprintf("%d/%d", pass, pass+fail+errs)
 	tone := "ok"
+
 	switch {
 	case fail > 0:
 		tone = "fail"
@@ -77,8 +81,12 @@ func (h PartialCompliance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // the status-cell partial uses, so the HTMX swap drops in cleanly.
 func writeBadge(w http.ResponseWriter, label, tone, tooltip string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w,
+	fmt.Fprintf(
+		w,
 		`<td class="status-cell" data-status=%q><span class="badge badge--%s" title=%q>%s</span></td>`,
-		tone, tone, tooltip, label,
+		tone,
+		tone,
+		tooltip,
+		label,
 	)
 }
