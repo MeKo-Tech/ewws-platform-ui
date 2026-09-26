@@ -37,7 +37,12 @@ func (h BootstrapRepo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	user := middleware.UserFromContext(ctx)
 	if user == nil || user.Token == "" {
-		http.Error(w, "login with GitHub first (we need your token to write the workflows)", http.StatusUnauthorized)
+		http.Error(
+			w,
+			"login with GitHub first (we need your token to write the workflows)",
+			http.StatusUnauthorized,
+		)
+
 		return
 	}
 

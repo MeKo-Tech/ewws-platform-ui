@@ -58,6 +58,7 @@ func Run(ctx context.Context, client *gh.Client, owner, repo, slug string) []Act
 	for _, step := range steps {
 		out = append(out, step(ctx, client, owner, repo, slug))
 	}
+
 	return out
 }
 
@@ -85,6 +86,7 @@ func ensureReleasePleaseWorkflow(ctx context.Context, c *gh.Client, owner, repo,
 
 func ensureReleasePleaseConfig(ctx context.Context, c *gh.Client, owner, repo, slug string) Action {
 	subs := map[string]string{"__SLUG__": slug}
+
 	return ensureFile(ctx, c, owner, repo,
 		"release-please-config.json",
 		"templates/release-please-config.json",
@@ -170,6 +172,7 @@ func ensureBranchProtectionMain(ctx context.Context, c *gh.Client, owner, repo, 
 	} else if !isNotFound(resp, err) {
 		action.Status = StatusFailed
 		action.Message = err.Error()
+
 		return action
 	}
 
@@ -179,17 +182,25 @@ func ensureBranchProtectionMain(ctx context.Context, c *gh.Client, owner, repo, 
 			RequiredApprovingReviewCount: 0,
 		},
 		EnforceAdmins:    false,
-		AllowForcePushes: gh.Bool(false),
-		AllowDeletions:   gh.Bool(false),
+		AllowForcePushes: gh.Ptr(false),
+		AllowDeletions:   gh.Ptr(false),
 	}
 
-	if _, _, err := c.Repositories.UpdateBranchProtection(ctx, owner, repo, branch, req); err != nil {
+	if _, _, err := c.Repositories.UpdateBranchProtection(
+		ctx,
+		owner,
+		repo,
+		branch,
+		req,
+	); err != nil {
 		action.Status = StatusFailed
 		action.Message = err.Error()
+
 		return action
 	}
 
 	action.Status = StatusApplied
+
 	return action
 }
 
@@ -214,6 +225,7 @@ func ensureFile(
 	} else if !isNotFound(resp, err) {
 		a.Status = StatusFailed
 		a.Message = err.Error()
+
 		return a
 	}
 
@@ -221,6 +233,7 @@ func ensureFile(
 	if err != nil {
 		a.Status = StatusFailed
 		a.Message = fmt.Sprintf("template read: %v", err)
+
 		return a
 	}
 
@@ -230,21 +243,24 @@ func ensureFile(
 		for k, v := range subs {
 			s = strings.ReplaceAll(s, k, v)
 		}
+
 		content = []byte(s)
 	}
 
 	opts := &gh.RepositoryContentFileOptions{
-		Message: gh.String(commitMsg),
+		Message: gh.Ptr(commitMsg),
 		Content: content,
 	}
 
 	if _, _, err := c.Repositories.CreateFile(ctx, owner, repo, path, opts); err != nil {
 		a.Status = StatusFailed
 		a.Message = err.Error()
+
 		return a
 	}
 
 	a.Status = StatusApplied
+
 	return a
 }
 
@@ -254,14 +270,17 @@ func isNotFound(resp *gh.Response, err error) bool {
 	if err == nil {
 		return false
 	}
+
 	if resp != nil && resp.Response != nil && resp.StatusCode == http.StatusNotFound {
 		return true
 	}
+
 	var errResp *gh.ErrorResponse
 	if errors.As(err, &errResp) {
 		if errResp.Response != nil && errResp.Response.StatusCode == http.StatusNotFound {
 			return true
 		}
 	}
+
 	return strings.Contains(err.Error(), "404")
 }

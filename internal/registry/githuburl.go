@@ -24,6 +24,7 @@ func ParseGitHubURL(raw string) (string, string, error) {
 	}
 
 	owner := parts[0]
+
 	repo := strings.TrimSuffix(parts[1], ".git")
 	if owner == "" || repo == "" {
 		return "", "", fmt.Errorf("empty owner or repo: %s", raw)

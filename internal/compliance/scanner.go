@@ -42,10 +42,22 @@ func (s *Scanner) RunOnce(ctx context.Context) (int, error) {
 	}
 
 	processed := 0
+
 	for _, app := range apps {
 		owner, repo, err := registry.ParseGitHubURL(app.Repo.URL)
 		if err != nil {
-			s.logf(ctx, "warn", "skip app — bad repo url", "slug", app.Slug, "url", app.Repo.URL, "err", err)
+			s.logf(
+				ctx,
+				"warn",
+				"skip app — bad repo url",
+				"slug",
+				app.Slug,
+				"url",
+				app.Repo.URL,
+				"err",
+				err,
+			)
+
 			continue
 		}
 
@@ -62,7 +74,18 @@ func (s *Scanner) RunOnce(ctx context.Context) (int, error) {
 			}
 
 			if err := s.Store.Upsert(ctx, res); err != nil {
-				s.logf(ctx, "error", "persist check failed", "slug", app.Slug, "check", c.Name, "err", err)
+				s.logf(
+					ctx,
+					"error",
+					"persist check failed",
+					"slug",
+					app.Slug,
+					"check",
+					c.Name,
+					"err",
+					err,
+				)
+
 				continue
 			}
 
@@ -99,6 +122,7 @@ func (s *Scanner) logf(_ context.Context, level, msg string, kv ...any) {
 	if s.Logger == nil {
 		return
 	}
+
 	switch level {
 	case "info":
 		s.Logger.Info(msg, kv...)
@@ -111,6 +135,7 @@ func (s *Scanner) logf(_ context.Context, level, msg string, kv ...any) {
 
 // parseRepoURL is now registry.ParseGitHubURL; this stub is kept as a
 // breadcrumb for older code paths that may still call it directly.
+//
 // Deprecated: use registry.ParseGitHubURL.
 func parseRepoURL(raw string) (string, string, error) {
 	return registry.ParseGitHubURL(raw)

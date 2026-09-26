@@ -56,6 +56,7 @@ func (s *Store) Upsert(ctx context.Context, r CheckResult) error {
 	if err != nil {
 		return fmt.Errorf("upsert compliance_check: %w", err)
 	}
+
 	return nil
 }
 
@@ -73,19 +74,29 @@ func (s *Store) ListBySlug(ctx context.Context, slug string) ([]CheckResult, err
 	defer rows.Close()
 
 	var out []CheckResult
+
 	for rows.Next() {
 		var (
-			r          CheckResult
-			ts         int64
-			statusStr  string
+			r         CheckResult
+			ts        int64
+			statusStr string
 		)
-		if err := rows.Scan(&r.Slug, &r.Repo, &r.CheckName, &statusStr, &r.Details, &ts); err != nil {
+		if err := rows.Scan(
+			&r.Slug,
+			&r.Repo,
+			&r.CheckName,
+			&statusStr,
+			&r.Details,
+			&ts,
+		); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
+
 		r.Status = Status(statusStr)
 		r.LastChecked = time.Unix(ts, 0).UTC()
 		out = append(out, r)
 	}
+
 	return out, rows.Err()
 }
 
@@ -104,19 +115,29 @@ func (s *Store) List(ctx context.Context) ([]CheckResult, error) {
 	defer rows.Close()
 
 	var out []CheckResult
+
 	for rows.Next() {
 		var (
 			r         CheckResult
 			ts        int64
 			statusStr string
 		)
-		if err := rows.Scan(&r.Slug, &r.Repo, &r.CheckName, &statusStr, &r.Details, &ts); err != nil {
+		if err := rows.Scan(
+			&r.Slug,
+			&r.Repo,
+			&r.CheckName,
+			&statusStr,
+			&r.Details,
+			&ts,
+		); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
+
 		r.Status = Status(statusStr)
 		r.LastChecked = time.Unix(ts, 0).UTC()
 		out = append(out, r)
 	}
+
 	return out, rows.Err()
 }
 
@@ -142,6 +163,7 @@ func (s *Store) Summarise(ctx context.Context) (map[string]Summary, error) {
 	defer rows.Close()
 
 	out := make(map[string]Summary)
+
 	for rows.Next() {
 		var (
 			slug   string
@@ -174,6 +196,7 @@ func (s *Store) Summarise(ctx context.Context) (map[string]Summary, error) {
 
 		out[slug] = summary
 	}
+
 	return out, rows.Err()
 }
 

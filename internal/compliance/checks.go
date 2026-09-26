@@ -36,26 +36,34 @@ func checkPRTitleWorkflow(ctx context.Context, c *gh.Client, owner, repo string)
 	if isNotFound(resp, err) {
 		return StatusFail, "missing .github/workflows/test-pr-title.yml — Conventional-Commits PR-title gate not enforced"
 	}
+
 	if err != nil {
 		return StatusError, fmt.Sprintf("github: %v", err)
 	}
+
 	return StatusPass, ""
 }
 
 // checkReleasePleaseWorkflow looks for the release-please workflow file.
 // Either of the two common filenames counts.
-func checkReleasePleaseWorkflow(ctx context.Context, c *gh.Client, owner, repo string) (Status, string) {
+func checkReleasePleaseWorkflow(
+	ctx context.Context,
+	c *gh.Client,
+	owner, repo string,
+) (Status, string) {
 	candidates := []string{
 		".github/workflows/release-please.yml",
 		".github/workflows/release.yml",
 	}
 
 	var lastErr error
+
 	for _, p := range candidates {
 		_, _, resp, err := c.Repositories.GetContents(ctx, owner, repo, p, nil)
 		if err == nil {
 			return StatusPass, ""
 		}
+
 		if !isNotFound(resp, err) {
 			lastErr = err
 		}
@@ -64,6 +72,7 @@ func checkReleasePleaseWorkflow(ctx context.Context, c *gh.Client, owner, repo s
 	if lastErr != nil {
 		return StatusError, fmt.Sprintf("github: %v", lastErr)
 	}
+
 	return StatusFail, "missing release-please workflow (.github/workflows/{release-please,release}.yml) — no automated version bumps"
 }
 
@@ -71,14 +80,20 @@ func checkReleasePleaseWorkflow(ctx context.Context, c *gh.Client, owner, repo s
 // enforce a specific rule set yet — just "is there a protection record
 // at all". Future iterations can require specific knobs (signed commits,
 // status checks, etc.).
-func checkBranchProtectionMain(ctx context.Context, c *gh.Client, owner, repo string) (Status, string) {
+func checkBranchProtectionMain(
+	ctx context.Context,
+	c *gh.Client,
+	owner, repo string,
+) (Status, string) {
 	_, resp, err := c.Repositories.GetBranchProtection(ctx, owner, repo, "main")
 	if isNotFound(resp, err) {
 		return StatusFail, "no branch-protection rule on `main` — force-push + delete allowed"
 	}
+
 	if err != nil {
 		return StatusError, fmt.Sprintf("github: %v", err)
 	}
+
 	return StatusPass, ""
 }
 
