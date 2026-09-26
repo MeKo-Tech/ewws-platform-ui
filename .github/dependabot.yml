@@ -13,7 +13,7 @@ updates:
       timezone: Europe/Berlin
     open-pull-requests-limit: 10
     commit-message:
-      prefix: ci
+      prefix: fix
       include: scope
     groups:
       github-actions:
