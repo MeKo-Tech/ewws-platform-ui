@@ -1,5 +1,8 @@
 version: 2
 
+# Groups deliberately include major updates. With minor/patch-only groups,
+# Dependabot marks every matching package as handled and silently never opens
+# the major PRs (dependabot-core#14202).
 updates:
   - package-ecosystem: github-actions
     directory: /
@@ -12,16 +15,10 @@ updates:
     commit-message:
       prefix: ci
       include: scope
-    labels:
-      - dependencies
-      - github-actions
     groups:
-      github-actions-minor-patch:
+      github-actions:
         patterns:
           - "*"
-        update-types:
-          - minor
-          - patch
 
   - package-ecosystem: gomod
     directory: /
@@ -32,25 +29,12 @@ updates:
       timezone: Europe/Berlin
     open-pull-requests-limit: 10
     commit-message:
-      prefix: chore
+      prefix: fix
       include: scope
-    labels:
-      - dependencies
-      - go
     groups:
-      otel:
-        patterns:
-          - "go.opentelemetry.io/*"
-      grpc-protobuf:
-        patterns:
-          - "google.golang.org/grpc*"
-          - "google.golang.org/protobuf*"
-      go-minor-patch:
+      go:
         patterns:
           - "*"
-        update-types:
-          - minor
-          - patch
 
   - package-ecosystem: docker
     directory: /
@@ -61,15 +45,9 @@ updates:
       timezone: Europe/Berlin
     open-pull-requests-limit: 10
     commit-message:
-      prefix: chore
+      prefix: fix
       include: scope
-    labels:
-      - dependencies
-      - docker
     groups:
-      docker-minor-patch:
+      docker:
         patterns:
           - "*"
-        update-types:
-          - minor
-          - patch
