@@ -1,13 +1,14 @@
 module github.com/MeKo-Tech/ewws-platform-ui
 
-go 1.25.0
+go 1.26.0
 
 require (
-	github.com/a-h/templ v0.3.943
+	github.com/a-h/templ v0.3.1020
 	github.com/google/go-github/v68 v68.0.0
 	github.com/gorilla/sessions v1.4.0
-	golang.org/x/oauth2 v0.30.0
+	golang.org/x/oauth2 v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
+	modernc.org/sqlite v1.50.1
 )
 
 require (
@@ -22,5 +23,4 @@ require (
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.50.1 // indirect
 )
