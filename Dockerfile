@@ -6,9 +6,9 @@
 # chart historically pins `runAsUser: 1000` — override to 65532 in values
 # before deploying, otherwise the kernel will reject the process.
 
-ARG GO_VERSION=1.25
-ARG TEMPL_VERSION=v0.3.943
-ARG ALPINE_VERSION=3.20
+ARG GO_VERSION=1.27.2
+ARG TEMPL_VERSION=v0.3.1070
+ARG ALPINE_VERSION=3.24.2
 
 # --- Stage 1: templ generate -------------------------------------------------
 FROM golang:${GO_VERSION}-bookworm AS templ
