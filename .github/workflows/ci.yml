@@ -14,18 +14,18 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        # actions/checkout@v4.2.2
+        # actions/checkout@v7.0.1
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Set up Go
-        # actions/setup-go@v5.2.0
+        # actions/setup-go@v7.0.0
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: 1.25.x
+          go-version: "1.27"
           cache: true
 
       - name: Install templ
-        run: go install github.com/a-h/templ/cmd/templ@v0.3.943
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1070
 
       - name: templ generate
         run: templ generate ./...
@@ -49,18 +49,18 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: 1.25.x
+          go-version: "1.27"
           cache: true
 
       - name: Install templ
-        run: go install github.com/a-h/templ/cmd/templ@v0.3.943
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1070
 
       - name: templ generate
         run: templ generate ./...
 
       - name: golangci-lint
-        # golangci/golangci-lint-action@v9.2.0
+        # golangci/golangci-lint-action@v9.3.0
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a
         with:
-          version: v2.14.0
+          version: v2.15.0
           args: --timeout=5m
