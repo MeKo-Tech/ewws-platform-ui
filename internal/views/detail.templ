@@ -166,7 +166,12 @@ templ Detail(page PageProps, props DetailProps) {
 					<a href="/">&larr; back to all apps</a>
 					· tech: <strong>{ props.App.Owners.Technical }</strong>
 					· org: <strong>{ props.App.Owners.Organizational }</strong>
-					· <a href={ templ.URL(props.App.Repo.URL) }>{ props.App.Repo.URL }</a>
+					if props.App.Repo.URL != "" {
+						· @repoLink(props.App.Repo.URL)
+					}
+					if props.App.AuthScope() != "" {
+						· @scopeBadge(props.App.AuthScope())
+					}
 				</p>
 			</section>
 			@detailTrafficCharts(props.Tenant)
@@ -325,7 +330,9 @@ templ stageCard(name, host string, app *argocd.Application, t *status.Tenant) {
 	<article class="card">
 		<header>
 			<h2>{ name }</h2>
-			<code>{ host }</code>
+			if host != "" {
+				<a href={ templ.URL("https://" + host) } target="_blank" rel="noopener noreferrer"><code>{ host }</code></a>
+			}
 		</header>
 		if app == nil {
 			<p class="muted">Not deployed.</p>
