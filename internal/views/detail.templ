@@ -20,6 +20,10 @@ type DetailProps struct {
 	Tree    *argocd.ResourceTree
 	YAML    string
 	Tenant  *status.Tenant // metrics + drift + compliance bundle
+
+	// AuthScope is the ewws-auth scope-catalog panel; nil when the claim
+	// has no scope.
+	AuthScope *AuthScopePanel
 }
 
 // chartPoints turns a Snapshot's hourly buckets into a "<x>,<y> ..."
@@ -174,6 +178,7 @@ templ Detail(page PageProps, props DetailProps) {
 					}
 				</p>
 			</section>
+			@detailAuthScopePanel(props.AuthScope)
 			@detailTrafficCharts(props.Tenant)
 			<section class="card-grid">
 				@stageCard("staging", props.App.Stages.Staging.Host, props.Staging, props.Tenant)
@@ -281,6 +286,64 @@ templ chartForStage(t *status.Tenant, stage string) {
 			<div class="chart-tooltip" hidden></div>
 		</div>
 	</article>
+}
+
+// detailAuthScopePanel shows what the claimed ewws-auth scope grants.
+// Renders nothing when the claim has no scope.
+templ detailAuthScopePanel(p *AuthScopePanel) {
+	if p != nil {
+		<section class="auth-scope-panel detail-section">
+			<h2>ewws-auth-Scope</h2>
+			switch p.State {
+				case AuthScopeOK:
+					<p>
+						<code>{ p.Scope.Name }</code>
+						if p.Scope.Description != "" {
+							— { p.Scope.Description }
+						}
+					</p>
+					if len(p.Scope.Permissions) == 0 {
+						<p class="muted">Keine Berechtigungen hinterlegt.</p>
+					} else {
+						<table class="resources">
+							<thead>
+								<tr><th>Key</th><th>Name</th><th>Beschreibung</th></tr>
+							</thead>
+							<tbody>
+								for _, perm := range p.Scope.Permissions {
+									<tr>
+										<td><code>{ perm.Key }</code></td>
+										<td>{ perm.Name }</td>
+										<td>{ perm.Description }</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					}
+					if len(p.Scope.URLs) > 0 {
+						<dl>
+							for _, g := range groupScopeURLs(p.Scope.URLs) {
+								<dt>{ g.Environment }</dt>
+								for _, u := range g.URLs {
+									<dd>
+										<a href={ templ.URL(u.URL) } target="_blank" rel="noopener noreferrer">{ u.URL }</a>
+										if u.Label != "" {
+											<small class="muted"> — { u.Label }</small>
+										}
+									</dd>
+								}
+							}
+						</dl>
+					}
+				case AuthScopeNotFound:
+					<p>Scope <code>{ p.Name }</code> ist in ewws-auth nicht bekannt.</p>
+				case AuthScopeUnreachable:
+					<p class="muted">ewws-auth nicht erreichbar.</p>
+				default:
+					<p class="muted">ewws-auth nicht angebunden.</p>
+			}
+		</section>
+	}
 }
 
 templ detailDriftPanel(t *status.Tenant) {

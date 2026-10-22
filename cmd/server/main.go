@@ -18,6 +18,7 @@ import (
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/compliance"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/config"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/drift"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/ewwsauth"
 	httpapp "github.com/MeKo-Tech/ewws-platform-ui/internal/http"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/metrics"
@@ -46,6 +47,13 @@ func run() error {
 	registry.SetAPIToken(cfg.GitHubAPIToken)
 
 	argoCl := argocd.New(cfg.ArgoCDURL, cfg.ArgoCDToken)
+
+	if cfg.EwwsAuthWarning != "" {
+		logger.Warn(cfg.EwwsAuthWarning)
+	}
+
+	authCl := ewwsauth.New(cfg.EwwsAuthURL, cfg.EwwsAuthClientID, cfg.EwwsAuthClientSecret)
+	logger.Info("ewws-auth scope catalog", slog.Bool("enabled", authCl.Enabled()))
 
 	store := middleware.NewSessionStore(cfg.SessionSecret)
 
@@ -161,6 +169,7 @@ func run() error {
 		MetricsStore:    metricsStore,
 		DriftStore:      driftStore,
 		Aggregator:      aggregator,
+		EwwsAuth:        authCl,
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Port)

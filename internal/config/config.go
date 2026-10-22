@@ -53,6 +53,19 @@ type Config struct {
 	// registry app's staging vs prod image tags against the GitHub
 	// compare API. Ignored when no GitHub API token is set.
 	DriftScanInterval time.Duration
+
+	// EwwsAuthURL, EwwsAuthClientID and EwwsAuthClientSecret wire up the
+	// read-only ewws-auth scope catalog shown on the detail page. All
+	// optional; a partial set disables the integration (see
+	// EwwsAuthWarning) instead of failing startup.
+	EwwsAuthURL          string
+	EwwsAuthClientID     string
+	EwwsAuthClientSecret string
+
+	// EwwsAuthWarning is non-empty when the ewws-auth env vars were only
+	// partially set and the integration was therefore disabled. main
+	// logs it once on boot.
+	EwwsAuthWarning string
 }
 
 // LoadFromEnv reads configuration from the environment.
@@ -108,6 +121,8 @@ func LoadFromEnv() (*Config, error) {
 	}
 
 	c.DriftScanInterval = driftInterval
+
+	c.loadEwwsAuth()
 
 	secret := os.Getenv("SESSION_SECRET")
 	if secret == "" {
@@ -165,6 +180,39 @@ func (c *Config) ArgoCDEnabled() bool {
 // REST API. Without it, private-registry reads return 404.
 func (c *Config) GitHubAPIReady() bool {
 	return c.GitHubAPIToken != ""
+}
+
+// loadEwwsAuth reads EWWS_AUTH_URL / EWWS_AUTH_CLIENT_ID /
+// EWWS_AUTH_CLIENT_SECRET. Either all three are set, or the integration
+// is disabled — a partial set is cleared and reported via
+// EwwsAuthWarning (never names the secret's value).
+func (c *Config) loadEwwsAuth() {
+	c.EwwsAuthURL = os.Getenv("EWWS_AUTH_URL")
+	c.EwwsAuthClientID = os.Getenv("EWWS_AUTH_CLIENT_ID")
+	c.EwwsAuthClientSecret = os.Getenv("EWWS_AUTH_CLIENT_SECRET")
+
+	set := 0
+
+	for _, v := range []string{c.EwwsAuthURL, c.EwwsAuthClientID, c.EwwsAuthClientSecret} {
+		if v != "" {
+			set++
+		}
+	}
+
+	if set == 0 || set == 3 {
+		return
+	}
+
+	c.EwwsAuthWarning = "ewws-auth integration disabled: EWWS_AUTH_URL, EWWS_AUTH_CLIENT_ID " +
+		"and EWWS_AUTH_CLIENT_SECRET must all be set"
+	c.EwwsAuthURL = ""
+	c.EwwsAuthClientID = ""
+	c.EwwsAuthClientSecret = ""
+}
+
+// EwwsAuthEnabled reports whether the ewws-auth scope catalog is wired up.
+func (c *Config) EwwsAuthEnabled() bool {
+	return c.EwwsAuthURL != "" && c.EwwsAuthClientID != "" && c.EwwsAuthClientSecret != ""
 }
 
 // PrometheusEnabled reports whether the metrics integration is wired up.
