@@ -48,6 +48,14 @@ Lives at `https://platform.apps.meko.work` (Tailscale-internal, behind Traefik).
 | `ADMIN_TEAM` | no | `ewws` |
 | `BASE_URL` | no | `https://platform.apps.meko.work` (used for OAuth redirect URI) |
 | `LOG_FORMAT` | no | `json` in prod, `text` otherwise |
+| `EWWS_AUTH_URL` | no | — (e.g. `https://login.ewws.meko.dev`; enables the read-only scope catalog on `/app/<slug>`) |
+| `EWWS_AUTH_CLIENT_ID` | no | — (HTTP Basic client id for `GET /scope-catalog/{name}`) |
+| `EWWS_AUTH_CLIENT_SECRET` | no | — (HTTP Basic client secret) |
+
+The three `EWWS_AUTH_*` vars go together: if only some are set, the
+integration is disabled with a startup warning (startup never fails on
+them). Scope lookups are cached in memory for 5 minutes and time out
+after 3 s; the detail page renders regardless of ewws-auth.
 
 Generate `SESSION_SECRET` like this:
 

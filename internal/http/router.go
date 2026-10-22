@@ -10,6 +10,7 @@ import (
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/compliance"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/config"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/drift"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/ewwsauth"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/handlers"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/metrics"
@@ -31,6 +32,10 @@ type Deps struct {
 
 	// Aggregator merges Argo + metrics + drift + compliance per render.
 	Aggregator *status.Aggregator
+
+	// EwwsAuth reads the scope catalog for the detail page. May be nil
+	// or disabled; Enabled() is nil-safe.
+	EwwsAuth *ewwsauth.Client
 }
 
 // NewRouter builds the *http.ServeMux + middleware chain.
@@ -66,7 +71,13 @@ func registerPages(mux *http.ServeMux, d Deps) {
 	landing := handlers.Landing{Cfg: d.Cfg, Aggregator: d.Aggregator, Logger: d.Logger}
 	mux.Handle("GET /{$}", landing)
 
-	detail := handlers.Detail{Cfg: d.Cfg, Argo: d.Argo, Aggregator: d.Aggregator, Logger: d.Logger}
+	detail := handlers.Detail{
+		Cfg:        d.Cfg,
+		Argo:       d.Argo,
+		Aggregator: d.Aggregator,
+		EwwsAuth:   d.EwwsAuth,
+		Logger:     d.Logger,
+	}
 	mux.Handle("GET /app/{slug}", detail)
 
 	claim := handlers.Claim{Cfg: d.Cfg, Reserved: d.Reserved, Logger: d.Logger}
