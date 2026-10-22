@@ -54,8 +54,26 @@ type App struct {
 	Resources     Resources           `yaml:"resources"                json:"resources"`
 	Images        Images              `yaml:"images,omitempty"         json:"images,omitempty"`
 	Features      Features            `yaml:"features"                 json:"features"`
+	Auth          *Auth               `yaml:"auth,omitempty"           json:"auth,omitempty"`
 	CreatedAt     string              `yaml:"created_at"               json:"created_at"`
 	StatusHistory []StatusHistoryItem `yaml:"status_history,omitempty" json:"status_history,omitempty"`
+}
+
+// Auth is the optional ewws-auth block of a claim. Scope names the
+// permission scope the app's tokens are checked against (pattern
+// ^[a-z0-9_]+$ in the registry schema).
+type Auth struct {
+	Scope string `yaml:"scope,omitempty" json:"scope,omitempty"`
+}
+
+// AuthScope returns the claimed auth scope, or "" when the claim has no
+// auth block.
+func (a App) AuthScope() string {
+	if a.Auth == nil {
+		return ""
+	}
+
+	return a.Auth.Scope
 }
 
 // Images holds the image repository + per-stage tag for each workload.

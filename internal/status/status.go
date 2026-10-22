@@ -29,6 +29,10 @@ type Tenant struct {
 	Owners registry.Owners
 	Repo   registry.Repo
 
+	// AuthScope is the claimed ewws-auth scope ("" when the claim has
+	// no auth block).
+	AuthScope string
+
 	// Stages always contains both "staging" and "prod" entries (even
 	// when Argo CD has no Application yet) so the template can render
 	// missing-state placeholders without nil checks.
@@ -85,6 +89,7 @@ func (a *Aggregator) BuildAll(ctx context.Context, apps []registry.App) []Tenant
 			Slug:       app.Slug,
 			Owners:     app.Owners,
 			Repo:       app.Repo,
+			AuthScope:  app.AuthScope(),
 			Stages:     map[string]Stage{},
 			Drift:      driftBySlugComponent[app.Slug],
 			Compliance: complianceBySlug[app.Slug],

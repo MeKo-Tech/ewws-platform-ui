@@ -32,3 +32,17 @@ func ParseGitHubURL(raw string) (string, string, error) {
 
 	return owner, repo, nil
 }
+
+// RepoDisplayName shortens a repository URL for display: a
+// `https://github.com/<owner>/<repo>` URL becomes `<owner>/<repo>`,
+// anything else is returned trimmed but otherwise unchanged.
+func RepoDisplayName(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+
+	owner, repo, err := ParseGitHubURL(trimmed)
+	if err != nil {
+		return trimmed
+	}
+
+	return owner + "/" + repo
+}

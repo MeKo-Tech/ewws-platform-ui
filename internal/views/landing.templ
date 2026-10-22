@@ -9,8 +9,25 @@ import (
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/compliance"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/drift"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/metrics"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/status"
 )
+
+// repoLink renders the source repository as an external link labelled
+// with its short `<owner>/<repo>` name. Renders nothing for an empty URL.
+templ repoLink(url string) {
+	if strings.TrimSpace(url) != "" {
+		<a href={ templ.URL(strings.TrimSpace(url)) } target="_blank" rel="noopener noreferrer">{ registry.RepoDisplayName(url) }</a>
+	}
+}
+
+// scopeBadge renders the claimed ewws-auth scope. Renders nothing when
+// the claim has no scope.
+templ scopeBadge(scope string) {
+	if scope != "" {
+		<span class="badge badge--neutral" title="ewws-auth Scope aus dem Claim">Scope: { scope }</span>
+	}
+}
 
 // activityLabel buckets a stage into a coarse label based on the default
 // thresholds. The frontend JS recomputes from localStorage when the user
@@ -327,6 +344,7 @@ templ dashboardToolbar() {
 			<summary>Spalten</summary>
 			<div class="columns">
 				<label><input type="checkbox" data-column="owners" checked/> Owner</label>
+				<label><input type="checkbox" data-column="repo" checked/> Repo</label>
 				<label><input type="checkbox" data-column="hosts" checked/> Hosts</label>
 				<label><input type="checkbox" data-column="activity" checked/> Aktivität</label>
 				<label><input type="checkbox" data-column="traffic" checked/> Traffic 24h/7d</label>
@@ -402,6 +420,7 @@ templ tenantCard(t status.Tenant) {
 	<details class="tenant-card" { tenantAttrs(t)... }>
 		<summary class="tenant-card__head">
 			<span class="tenant-card__slug">{ t.Slug }</span>
+			@scopeBadge(t.AuthScope)
 			@activityBadge(t.Stages["prod"], "prod")
 			@activityBadge(t.Stages["staging"], "staging")
 			@driftSummary(t.Drift)
@@ -413,6 +432,9 @@ templ tenantCard(t status.Tenant) {
 				<div class="kv">
 					<dt>Tech</dt><dd>{ t.Owners.Technical }</dd>
 					<dt>Org</dt><dd>{ t.Owners.Organizational }</dd>
+					if t.Repo.URL != "" {
+						<dt>Repo</dt><dd>@repoLink(t.Repo.URL)</dd>
+					}
 				</div>
 				<div class="kv">
 					<dt>Host (prod)</dt><dd><a href={ templ.URL("https://" + t.Stages["prod"].Host) }><code>{ t.Stages["prod"].Host }</code></a></dd>
@@ -590,6 +612,7 @@ templ tableView(tenants []status.Tenant) {
 			<tr>
 				<th data-column="slug" data-sort="text">Slug</th>
 				<th data-column="owners">Owner</th>
+				<th data-column="repo">Repo</th>
 				<th data-column="hosts">Hosts</th>
 				<th data-column="activity">Aktivität (prod)</th>
 				<th data-column="traffic" data-sort="num" data-sort-key="prod-req24h">Req/24h</th>
@@ -607,7 +630,7 @@ templ tableView(tenants []status.Tenant) {
 		</thead>
 		<tbody>
 			if len(tenants) == 0 {
-				<tr><td colspan="14" class="empty">Noch keine Tenants geclaimt.</td></tr>
+				<tr><td colspan="16" class="empty">Noch keine Tenants geclaimt.</td></tr>
 			}
 			for _, t := range tenants {
 				@tenantRow(t)
@@ -628,6 +651,12 @@ templ tenantRow(t status.Tenant) {
 		<td data-column="owners">
 			<small>tech: { t.Owners.Technical }</small><br/>
 			<small>org: { t.Owners.Organizational }</small>
+		</td>
+		<td data-column="repo">
+			<small>@repoLink(t.Repo.URL)</small>
+			if t.AuthScope != "" {
+				<br/>@scopeBadge(t.AuthScope)
+			}
 		</td>
 		<td data-column="hosts">
 			<small><a href={ templ.URL("https://" + t.Stages["prod"].Host) }>{ t.Stages["prod"].Host }</a></small><br/>
