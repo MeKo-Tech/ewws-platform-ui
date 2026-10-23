@@ -298,6 +298,8 @@ pre {
 
 .claim-form input[type="text"],
 .claim-form input[type="url"],
+.claim-form input[type="number"],
+.claim-form textarea,
 .claim-form select {
   display: block;
   width: 100%;
@@ -323,6 +325,35 @@ pre {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
+}
+
+.claim-form .row--3 { grid-template-columns: 1fr 1fr 1fr; }
+
+.claim-form textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.claim-form > small,
+.claim-form fieldset > small { margin: -0.4rem 0 0.7rem; }
+
+.claim-hint,
+.claim-warning {
+  border-left: 3px solid var(--warn);
+  background: #fef3c7;
+  color: #78350f;
+  padding: 0.7rem 1rem;
+  margin: 0 0 1.5rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.claim-warning { margin-bottom: 1rem; }
+
+@media (max-width: 640px) {
+  .claim-form .row,
+  .claim-form .row--3 { grid-template-columns: 1fr; }
 }
 
 .claim-form .primary {

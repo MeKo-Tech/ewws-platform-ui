@@ -11,9 +11,14 @@ Lives at `https://platform.apps.meko.work` (Tailscale-internal, behind Traefik).
   [`MeKo-Tech/ewws-apps-registry`](https://github.com/MeKo-Tech/ewws-apps-registry)
   (the `apps/*.yaml` files) plus the cluster's Argo CD HTTP API.
 - **Logged-in (any MeKo-Tech org member)**: fill the `/claim` form, which
-  opens a PR against `ewws-apps-registry` adding `apps/<slug>.yaml`. The PR
-  is authored by the **user's own GitHub token** (OAuth2 flow), so audit
-  trails stay clean.
+  opens a PR against `ewws-apps-registry` adding `apps/<slug>.yaml` plus
+  `tags/<slug>/<stage>.yaml` for every enabled stage (seeded with the
+  initial image tag; the app CI overwrites them later), all in one commit.
+  The PR is authored by the **user's own GitHub token** (OAuth2 flow), so
+  audit trails stay clean. The form validates the claim against what the
+  registry's `validate-apps` job checks; the schema copy it is tested
+  against lives in `internal/registry/testdata/schema` (the refresh command
+  is in `internal/registry/schema_test.go`).
 - **Admins (`MeKo-Tech:ewws` team)**: get extra `Merge / Suspend` buttons
   in the UI — for MVP these just call the same GitHub PR API as the user.
 

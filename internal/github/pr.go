@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,9 +14,12 @@ import (
 
 // PRRequest is the input to OpenClaimPR.
 type PRRequest struct {
-	Repo        string // "owner/repo"
-	Slug        string
-	YAMLContent []byte
+	Repo string // "owner/repo"
+	Slug string
+	// Files maps a repository path (e.g. apps/<slug>.yaml,
+	// tags/<slug>/staging.yaml) to its content; all of them land in one
+	// commit.
+	Files       map[string][]byte
 	Branch      string // e.g. feat/claim-<slug>
 	Title       string
 	Body        string
@@ -30,15 +34,21 @@ type PRResult struct {
 	Number int
 }
 
-// OpenClaimPR creates a feature branch from `main`, commits the new
-// `apps/<slug>.yaml`, and opens a PR — all via the user's OAuth client.
-//
-// Steps:
-//  1. Look up the SHA of `main` (refs/heads/main).
-//  2. Create branch ref `refs/heads/<branch>` pointing at that SHA.
-//  3. PUT the file (Contents API does branch + commit in one call).
-//  4. Open PR.
+// OpenClaimPR commits all req.Files in a single commit on a new feature
+// branch and opens a PR — all via the user's OAuth client.
 func OpenClaimPR(ctx context.Context, httpClient *http.Client, req PRRequest) (*PRResult, error) {
+	return openClaimPR(ctx, gh.NewClient(httpClient), req)
+}
+
+// openClaimPR uses the Git Data API so several files land in one commit:
+//
+//  1. Look up the SHA of the base branch (refs/heads/<base>).
+//  2. Read that commit's tree SHA.
+//  3. Create a tree on top of it with every file as a blob.
+//  4. Create a commit with that tree and the base commit as parent.
+//  5. Create branch ref refs/heads/<branch> at the new commit.
+//  6. Open the PR.
+func openClaimPR(ctx context.Context, client *gh.Client, req PRRequest) (*PRResult, error) {
 	if err := req.validate(); err != nil {
 		return nil, err
 	}
@@ -48,34 +58,56 @@ func OpenClaimPR(ctx context.Context, httpClient *http.Client, req PRRequest) (*
 		return nil, err
 	}
 
-	client := gh.NewClient(httpClient)
-
 	baseSHA, err := getBranchSHA(ctx, client, owner, repo, req.BaseBranch)
 	if err != nil {
 		return nil, fmt.Errorf("base branch %q: %w", req.BaseBranch, err)
 	}
 
-	if err := createBranch(ctx, client, owner, repo, req.Branch, baseSHA); err != nil {
-		return nil, fmt.Errorf("create branch %q: %w", req.Branch, err)
+	baseCommit, _, err := client.Git.GetCommit(ctx, owner, repo, baseSHA)
+	if err != nil {
+		return nil, fmt.Errorf("base commit %s: %w", baseSHA, err)
 	}
 
-	path := fmt.Sprintf("apps/%s.yaml", req.Slug)
+	paths := make([]string, 0, len(req.Files))
+	for p := range req.Files {
+		paths = append(paths, p)
+	}
 
-	commitMsg := fmt.Sprintf("feat: claim %s", req.Slug)
+	slices.Sort(paths)
 
-	commit := &gh.RepositoryContentFileOptions{
-		Message: gh.Ptr(commitMsg),
-		Content: req.YAMLContent,
-		Branch:  gh.Ptr(req.Branch),
+	entries := make([]*gh.TreeEntry, 0, len(paths))
+	for _, p := range paths {
+		entries = append(entries, &gh.TreeEntry{
+			Path:    gh.Ptr(p),
+			Mode:    gh.Ptr("100644"),
+			Type:    gh.Ptr("blob"),
+			Content: gh.Ptr(string(req.Files[p])),
+		})
+	}
+
+	tree, _, err := client.Git.CreateTree(
+		ctx, owner, repo, baseCommit.GetTree().GetSHA(), entries,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create tree: %w", err)
+	}
+
+	commit, _, err := client.Git.CreateCommit(ctx, owner, repo, &gh.Commit{
+		Message: gh.Ptr(fmt.Sprintf("feat: claim %s", req.Slug)),
+		Tree:    &gh.Tree{SHA: tree.SHA},
+		Parents: []*gh.Commit{{SHA: gh.Ptr(baseSHA)}},
 		Author: &gh.CommitAuthor{
 			Name:  gh.Ptr(authorName(req)),
 			Email: gh.Ptr(authorEmail(req)),
 			Date:  &gh.Timestamp{Time: time.Now().UTC()},
 		},
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create commit: %w", err)
 	}
 
-	if _, _, err := client.Repositories.CreateFile(ctx, owner, repo, path, commit); err != nil {
-		return nil, fmt.Errorf("create file %s: %w", path, err)
+	if err := createBranch(ctx, client, owner, repo, req.Branch, commit.GetSHA()); err != nil {
+		return nil, fmt.Errorf("create branch %q: %w", req.Branch, err)
 	}
 
 	prReq := &gh.NewPullRequest{
@@ -105,8 +137,18 @@ func (r *PRRequest) validate() error {
 		return errors.New("slug is required")
 	}
 
-	if len(r.YAMLContent) == 0 {
-		return errors.New("yaml content is required")
+	if len(r.Files) == 0 {
+		return errors.New("at least one file is required")
+	}
+
+	for p, content := range r.Files {
+		if p == "" || strings.HasPrefix(p, "/") {
+			return fmt.Errorf("file path %q must be a relative repository path", p)
+		}
+
+		if len(content) == 0 {
+			return fmt.Errorf("file %s is empty", p)
+		}
 	}
 
 	if r.Branch == "" {

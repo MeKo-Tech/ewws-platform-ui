@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/config"
 	ghclient "github.com/MeKo-Tech/ewws-platform-ui/internal/github"
@@ -59,16 +63,158 @@ func (h Claim) renderForm(
 
 	page := views.PageProps{Title: "Claim", User: userFromCtx(r.Context())}
 
-	props := views.ClaimProps{
-		DefaultOwner:   user.Login,
+	render(w, r, views.Claim(page, claimProps(user.Login, errMsg, token, prev)))
+}
+
+func claimProps(owner, errMsg, token string, prev views.ClaimFormState) views.ClaimProps {
+	return views.ClaimProps{
+		DefaultOwner:   owner,
 		MemoryOptions:  registry.MemoryOptions,
 		CPUOptions:     registry.CPUOptions,
 		Error:          errMsg,
 		CSRFToken:      token,
 		PreviousValues: prev,
 	}
+}
 
-	render(w, r, views.Claim(page, props))
+// parseClaimForm turns the submitted form into a ClaimInput. The returned
+// form state always carries the raw input, so the form can be shown again
+// with the user's values when parsing or validation fails.
+func parseClaimForm(
+	form url.Values,
+	user *middleware.SessionUser,
+) (*registry.ClaimInput, views.ClaimFormState, error) {
+	val := func(name string) string { return strings.TrimSpace(form.Get(name)) }
+	raw := func(name string) string { return form.Get(name) }
+	checked := func(name string) bool { return form.Get(name) != "" }
+
+	component := func(prefix string) views.ClaimComponentFormState {
+		return views.ClaimComponentFormState{
+			ImageRepo:     val(prefix + "_image_repo"),
+			ImageTag:      val(prefix + "_image_tag"),
+			MemoryLimit:   val(prefix + "_memory_limit"),
+			CPULimit:      val(prefix + "_cpu_limit"),
+			Port:          val(prefix + "_port"),
+			LivenessPath:  val(prefix + "_liveness_path"),
+			ReadinessPath: val(prefix + "_readiness_path"),
+			StartupPath:   val(prefix + "_startup_path"),
+			Env:           raw(prefix + "_env"),
+			EnvFrom:       val(prefix + "_env_from"),
+		}
+	}
+
+	stage := func(prefix string) views.ClaimStageFormState {
+		return views.ClaimStageFormState{
+			Host:        val(prefix + "_host"),
+			Enabled:     checked(prefix + "_enabled"),
+			BackendEnv:  raw(prefix + "_backend_env"),
+			FrontendEnv: raw(prefix + "_frontend_env"),
+		}
+	}
+
+	st := views.ClaimFormState{
+		Submitted:     true,
+		Slug:          val("slug"),
+		RepoURL:       val("repo_url"),
+		HasBackend:    checked("has_backend"),
+		HasFrontend:   checked("has_frontend"),
+		Backend:       component("backend"),
+		Frontend:      component("frontend"),
+		Staging:       stage("staging"),
+		Prod:          stage("prod"),
+		AuthScope:     val("auth_scope"),
+		Websocket:     checked("websocket"),
+		IngressAuth:   val("ingress_auth"),
+		Secrets:       raw("secrets"),
+		SharedSecrets: val("shared_secrets"),
+	}
+
+	in := &registry.ClaimInput{
+		Slug:                st.Slug,
+		OwnerTechnical:      user.Login,
+		OwnerOrganizational: user.Login,
+		RepoURL:             st.RepoURL,
+		HasBackend:          st.HasBackend,
+		HasFrontend:         st.HasFrontend,
+		AuthScope:           st.AuthScope,
+		Websocket:           st.Websocket,
+		IngressAuth:         st.IngressAuth,
+		SharedSecrets:       registry.ParseNameList(st.SharedSecrets),
+	}
+
+	var err error
+
+	if in.Backend, err = componentInput("backend", st.Backend); err != nil {
+		return nil, st, err
+	}
+
+	if in.Frontend, err = componentInput("frontend", st.Frontend); err != nil {
+		return nil, st, err
+	}
+
+	if in.Staging, err = stageInput("staging", st.Staging); err != nil {
+		return nil, st, err
+	}
+
+	if in.Prod, err = stageInput("prod", st.Prod); err != nil {
+		return nil, st, err
+	}
+
+	if in.Secrets, err = registry.ParseSecretLines(st.Secrets); err != nil {
+		return nil, st, fmt.Errorf("secrets: %w", err)
+	}
+
+	return in, st, nil
+}
+
+func componentInput(
+	name string,
+	st views.ClaimComponentFormState,
+) (registry.ComponentInput, error) {
+	out := registry.ComponentInput{
+		ImageRepository: st.ImageRepo,
+		ImageTag:        st.ImageTag,
+		MemoryLimit:     st.MemoryLimit,
+		CPULimit:        st.CPULimit,
+		EnvFromSecrets:  registry.ParseNameList(st.EnvFrom),
+		LivenessPath:    st.LivenessPath,
+		ReadinessPath:   st.ReadinessPath,
+		StartupPath:     st.StartupPath,
+	}
+
+	if st.Port != "" {
+		port, err := strconv.Atoi(st.Port)
+		if err != nil {
+			return out, fmt.Errorf("%s port %q is not a number", name, st.Port)
+		}
+
+		out.Port = port
+	}
+
+	env, err := registry.ParseEnvLines(st.Env)
+	if err != nil {
+		return out, fmt.Errorf("%s env: %w", name, err)
+	}
+
+	out.Env = env
+
+	return out, nil
+}
+
+func stageInput(name string, st views.ClaimStageFormState) (registry.StageInput, error) {
+	out := registry.StageInput{Host: st.Host, Enabled: st.Enabled}
+
+	var err error
+
+	if out.BackendEnv, err = registry.ParseEnvLines(st.BackendEnv); err != nil {
+		return out, fmt.Errorf("%s backend env: %w", name, err)
+	}
+
+	if out.FrontendEnv, err = registry.ParseEnvLines(st.FrontendEnv); err != nil {
+		return out, fmt.Errorf("%s frontend env: %w", name, err)
+	}
+
+	return out, nil
 }
 
 func (h Claim) handleSubmit(w http.ResponseWriter, r *http.Request, user *middleware.SessionUser) {
@@ -84,44 +230,10 @@ func (h Claim) handleSubmit(w http.ResponseWriter, r *http.Request, user *middle
 		return
 	}
 
-	prev := views.ClaimFormState{
-		Slug:                r.FormValue("slug"),
-		RepoURL:             r.FormValue("repo_url"),
-		HasBackend:          r.FormValue("has_backend") != "",
-		HasFrontend:         r.FormValue("has_frontend") != "",
-		BackendImageRepo:    r.FormValue("backend_image_repo"),
-		BackendImageTag:     r.FormValue("backend_image_tag"),
-		FrontendImageRepo:   r.FormValue("frontend_image_repo"),
-		FrontendImageTag:    r.FormValue("frontend_image_tag"),
-		BackendMemoryLimit:  r.FormValue("backend_memory_limit"),
-		BackendCPULimit:     r.FormValue("backend_cpu_limit"),
-		FrontendMemoryLimit: r.FormValue("frontend_memory_limit"),
-		FrontendCPULimit:    r.FormValue("frontend_cpu_limit"),
-		StagingHost:         r.FormValue("staging_host"),
-		ProdHost:            r.FormValue("prod_host"),
-	}
-
-	input := &registry.ClaimInput{
-		Slug:                prev.Slug,
-		OwnerTechnical:      user.Login,
-		OwnerOrganizational: user.Login,
-		RepoURL:             prev.RepoURL,
-		HasBackend:          prev.HasBackend,
-		HasFrontend:         prev.HasFrontend,
-		Backend: registry.ComponentInput{
-			ImageRepository: prev.BackendImageRepo,
-			ImageTag:        prev.BackendImageTag,
-			MemoryLimit:     prev.BackendMemoryLimit,
-			CPULimit:        prev.BackendCPULimit,
-		},
-		Frontend: registry.ComponentInput{
-			ImageRepository: prev.FrontendImageRepo,
-			ImageTag:        prev.FrontendImageTag,
-			MemoryLimit:     prev.FrontendMemoryLimit,
-			CPULimit:        prev.FrontendCPULimit,
-		},
-		Staging: registry.StageInput{Host: prev.StagingHost, Enabled: true},
-		Prod:    registry.StageInput{Host: prev.ProdHost, Enabled: true},
+	input, prev, err := parseClaimForm(r.PostForm, user)
+	if err != nil {
+		h.renderForm(w, r, err.Error(), prev)
+		return
 	}
 
 	if err := input.Validate(h.Reserved); err != nil {
@@ -129,17 +241,15 @@ func (h Claim) handleSubmit(w http.ResponseWriter, r *http.Request, user *middle
 		return
 	}
 
-	app := input.ToApp()
-
-	yamlBytes, err := app.RenderYAML()
+	files, err := claimFiles(input)
 	if err != nil {
-		h.Logger.Error("render yaml", slog.Any("err", err))
+		h.Logger.Error("render claim files", slog.Any("err", err))
 		h.renderForm(w, r, "could not render YAML: "+err.Error(), prev)
 
 		return
 	}
 
-	prResult, err := h.openPR(r.Context(), user, input, yamlBytes)
+	prResult, err := h.openPR(r.Context(), user, input, files)
 	if err != nil {
 		h.Logger.Error("open PR", slog.Any("err", err))
 		h.renderForm(w, r, "could not open PR: "+err.Error(), prev)
@@ -151,13 +261,105 @@ func (h Claim) handleSubmit(w http.ResponseWriter, r *http.Request, user *middle
 
 	page := views.PageProps{Title: "Claim opened", User: userFromCtx(r.Context())}
 
+	stagingHost := input.Staging.Host
+	if !input.Staging.Enabled {
+		stagingHost = input.Prod.Host
+	}
+
 	render(w, r, views.ClaimSuccess(page, views.ClaimSuccessData{
 		Slug:       input.Slug,
 		PRURL:      prResult.URL,
 		Actions:    toViewActions(bootstrapResults),
 		RepoURL:    input.RepoURL,
-		StagingURL: "https://" + input.Staging.Host,
+		StagingURL: "https://" + stagingHost,
 	}))
+}
+
+// claimFiles renders apps/<slug>.yaml plus the initial tag files of every
+// enabled stage, keyed by their registry path.
+func claimFiles(input *registry.ClaimInput) (map[string][]byte, error) {
+	yamlBytes, err := input.ToApp().RenderYAML()
+	if err != nil {
+		return nil, err
+	}
+
+	files, err := input.TagFiles()
+	if err != nil {
+		return nil, err
+	}
+
+	files["apps/"+input.Slug+".yaml"] = yamlBytes
+
+	return files, nil
+}
+
+// claimPRBody is the description of the registry PR.
+func claimPRBody(login string, input *registry.ClaimInput, files map[string][]byte) string {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "Claim opened via the platform UI by @%s.\n\n", login)
+	fmt.Fprintf(&b, "- slug: `%s`\n", input.Slug)
+	fmt.Fprintf(&b, "- repo: %s\n", input.RepoURL)
+
+	var comps []string
+	if input.HasBackend {
+		comps = append(comps, "backend")
+	}
+
+	if input.HasFrontend {
+		comps = append(comps, "frontend")
+	}
+
+	fmt.Fprintf(&b, "- components: %s\n", strings.Join(comps, ", "))
+
+	for _, s := range []struct {
+		name string
+		in   registry.StageInput
+	}{{"staging", input.Staging}, {"prod", input.Prod}} {
+		fmt.Fprintf(&b, "- %s: `%s` (enabled: %t)\n", s.name, s.in.Host, s.in.Enabled)
+	}
+
+	b.WriteString("\nImages (initial tag for staging and prod):\n\n")
+
+	if input.HasBackend {
+		fmt.Fprintf(
+			&b,
+			"- backend: `%s:%s`\n",
+			input.Backend.ImageRepository,
+			input.Backend.ImageTag,
+		)
+	}
+
+	if input.HasFrontend {
+		fmt.Fprintf(
+			&b,
+			"- frontend: `%s:%s`\n",
+			input.Frontend.ImageRepository,
+			input.Frontend.ImageTag,
+		)
+	}
+
+	paths := make([]string, 0, len(files))
+	for p := range files {
+		paths = append(paths, p)
+	}
+
+	slices.Sort(paths)
+
+	b.WriteString("\nFiles in this PR:\n\n")
+
+	for _, p := range paths {
+		fmt.Fprintf(&b, "- `%s`\n", p)
+	}
+
+	b.WriteString(
+		"\nThe `tags/" + input.Slug + "/<stage>.yaml` files are seeded with the initial " +
+			"tag; the app CI (`write-registry-tag`) overwrites them on its next build.\n",
+	)
+	b.WriteString("\n`enabled: false` on a stage only takes effect after the platform rollout " +
+		"(meko-app chart 1.10.0 and ApplicationSet support); until then the stage is deployed anyway.\n")
+
+	return b.String()
 }
 
 // toViewActions adapts the repobootstrap types to the views' simpler shape
@@ -213,7 +415,7 @@ func (h Claim) openPR(
 	ctx context.Context,
 	user *middleware.SessionUser,
 	input *registry.ClaimInput,
-	yamlBytes []byte,
+	files map[string][]byte,
 ) (*ghclient.PRResult, error) {
 	if user.Token == "" {
 		return nil, fmt.Errorf("no OAuth token in session")
@@ -222,33 +424,13 @@ func (h Claim) openPR(
 	src := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: user.Token})
 	httpClient := oauth2.NewClient(ctx, src)
 
-	body := fmt.Sprintf(
-		"Claim opened via the platform UI by @%s.\n\n"+
-			"- slug: `%s`\n"+
-			"- repo: %s\n"+
-			"- staging host: %s\n"+
-			"- prod host: %s\n"+
-			"- backend image: `%s:%s`\n"+
-			"- frontend image: `%s:%s`\n\n"+
-			"Resources: backend `%s` / `%s` CPU, frontend `%s` / `%s` CPU.",
-		user.Login,
-		input.Slug,
-		input.RepoURL,
-		input.Staging.Host,
-		input.Prod.Host,
-		input.Backend.ImageRepository, input.Backend.ImageTag,
-		input.Frontend.ImageRepository, input.Frontend.ImageTag,
-		input.Backend.MemoryLimit, input.Backend.CPULimit,
-		input.Frontend.MemoryLimit, input.Frontend.CPULimit,
-	)
-
 	req := ghclient.PRRequest{
 		Repo:        h.Cfg.AppsRegistryRepo,
 		Slug:        input.Slug,
-		YAMLContent: yamlBytes,
+		Files:       files,
 		Branch:      "feat/claim-" + input.Slug,
 		Title:       "feat: claim " + input.Slug,
-		Body:        body,
+		Body:        claimPRBody(user.Login, input, files),
 		AuthorLogin: user.Login,
 		AuthorEmail: user.Email,
 		BaseBranch:  "main",

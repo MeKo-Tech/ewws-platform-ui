@@ -10,23 +10,64 @@ type ClaimProps struct {
 	PreviousValues ClaimFormState
 }
 
-// ClaimFormState holds the last-submitted values so we can re-render on validation errors.
+// ClaimFormState holds the last-submitted values so we can re-render on
+// validation errors. Free-text fields (env, secrets, lists, port) keep
+// the raw text the user typed, so a parse error never loses input.
 type ClaimFormState struct {
-	Slug                string
-	RepoURL             string
-	HasBackend          bool
-	HasFrontend         bool
-	BackendImageRepo    string
-	BackendImageTag     string
-	FrontendImageRepo   string
-	FrontendImageTag    string
-	BackendMemoryLimit  string
-	BackendCPULimit     string
-	FrontendMemoryLimit string
-	FrontendCPULimit    string
-	StagingHost         string
-	ProdHost            string
+	// Submitted is false on the first GET; checkboxes then show their
+	// defaults (checked) instead of the (absent) submitted values.
+	Submitted bool
+
+	Slug        string
+	RepoURL     string
+	HasBackend  bool
+	HasFrontend bool
+
+	Backend  ClaimComponentFormState
+	Frontend ClaimComponentFormState
+
+	Staging ClaimStageFormState
+	Prod    ClaimStageFormState
+
+	AuthScope     string
+	Websocket     bool
+	IngressAuth   string
+	Secrets       string
+	SharedSecrets string
 }
+
+// ClaimComponentFormState is the raw form input of one component.
+type ClaimComponentFormState struct {
+	ImageRepo     string
+	ImageTag      string
+	MemoryLimit   string
+	CPULimit      string
+	Port          string
+	LivenessPath  string
+	ReadinessPath string
+	StartupPath   string
+	Env           string
+	EnvFrom       string
+}
+
+// ClaimStageFormState is the raw form input of one stage.
+type ClaimStageFormState struct {
+	Host        string
+	Enabled     bool
+	BackendEnv  string
+	FrontendEnv string
+}
+
+// IngressAuthOptions are the features.ingress_auth choices; "none" first
+// so it is the default.
+var IngressAuthOptions = []string{"none", "github-org", "ewws-auth"}
+
+const (
+	onboardingURL     = "https://github.com/MeKo-Tech/ewws-apps-registry/blob/main/docs/onboarding.md"
+	secretsGuideURL   = "https://github.com/MeKo-Tech/go-react-template/blob/main/AGENTS.md#secrets"
+	onboardingAuthURL = onboardingURL + "#8-login-über-ewws-auth"
+	onboardingSecrets = onboardingURL + "#7-secrets"
+)
 
 templ Claim(page PageProps, props ClaimProps) {
 	@Layout(page) {
@@ -65,69 +106,69 @@ templ Claim(page PageProps, props ClaimProps) {
 					<input type="url" name="repo_url" required placeholder="https://github.com/MeKo-Tech/my-app" value={ props.PreviousValues.RepoURL }/>
 				</label>
 				<label>
-					<input type="checkbox" name="has_backend" value="1" checked?={ defaultTrueIfNew(props.PreviousValues.Slug, props.PreviousValues.HasBackend) }/>
+					<input type="checkbox" name="has_backend" value="1" checked?={ checkedOrDefault(props.PreviousValues.Submitted, props.PreviousValues.HasBackend) }/>
 					Has backend service
 				</label>
 				<label>
-					<input type="checkbox" name="has_frontend" value="1" checked?={ defaultTrueIfNew(props.PreviousValues.Slug, props.PreviousValues.HasFrontend) }/>
+					<input type="checkbox" name="has_frontend" value="1" checked?={ checkedOrDefault(props.PreviousValues.Submitted, props.PreviousValues.HasFrontend) }/>
 					Has frontend service
 				</label>
 			</fieldset>
+			@componentFieldset("backend", "Backend", "256Mi", "250m", props, props.PreviousValues.Backend)
+			@componentFieldset("frontend", "Frontend", "128Mi", "100m", props, props.PreviousValues.Frontend)
+			@stageFieldset("staging", "Staging", "my-app.staging.apps.meko.work", props.PreviousValues.Submitted, props.PreviousValues.Staging)
+			@stageFieldset("prod", "Prod", "my-app.apps.meko.work", props.PreviousValues.Submitted, props.PreviousValues.Prod)
+			<p class="claim-hint">
+				Hinweis: <code>enabled: false</code> wirkt erst nach dem Plattform-Rollout (meko-app Chart 1.10.0 und ApplicationSet-Unterstützung sind noch nicht live). Bis dahin wird die Stage trotzdem deployt.
+			</p>
 			<fieldset>
-				<legend>Container images</legend>
-				<div class="row">
-					<label>
-						Backend image (repository)
-						<input type="text" name="backend_image_repo" placeholder="ghcr.io/meko-tech/my-app-backend" value={ props.PreviousValues.BackendImageRepo }/>
-					</label>
-					<label>
-						Backend tag
-						<input type="text" name="backend_image_tag" placeholder="latest" value={ props.PreviousValues.BackendImageTag }/>
-					</label>
-				</div>
-				<div class="row">
-					<label>
-						Frontend image (repository)
-						<input type="text" name="frontend_image_repo" placeholder="ghcr.io/meko-tech/my-app-frontend" value={ props.PreviousValues.FrontendImageRepo }/>
-					</label>
-					<label>
-						Frontend tag
-						<input type="text" name="frontend_image_tag" placeholder="latest" value={ props.PreviousValues.FrontendImageTag }/>
-					</label>
-				</div>
-			</fieldset>
-			<fieldset>
-				<legend>Resources</legend>
-				<div class="row">
-					<label>
-						Backend memory limit
-						@selectField("backend_memory_limit", props.MemoryOptions, props.PreviousValues.BackendMemoryLimit, "256Mi")
-					</label>
-					<label>
-						Backend CPU limit
-						@selectField("backend_cpu_limit", props.CPUOptions, props.PreviousValues.BackendCPULimit, "250m")
-					</label>
-				</div>
-				<div class="row">
-					<label>
-						Frontend memory limit
-						@selectField("frontend_memory_limit", props.MemoryOptions, props.PreviousValues.FrontendMemoryLimit, "128Mi")
-					</label>
-					<label>
-						Frontend CPU limit
-						@selectField("frontend_cpu_limit", props.CPUOptions, props.PreviousValues.FrontendCPULimit, "100m")
-					</label>
-				</div>
-			</fieldset>
-			<fieldset>
-				<legend>Hosts</legend>
+				<legend>ewws-auth</legend>
 				<label>
-					Staging host
-					<input type="text" name="staging_host" required placeholder="my-app.staging.apps.meko.work" value={ props.PreviousValues.StagingHost }/>
+					Scope (optional)
+					<input
+						type="text"
+						name="auth_scope"
+						pattern="^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+						placeholder="my-app"
+						value={ props.PreviousValues.AuthScope }
+					/>
+					<small>
+						Name des ewws-auth-Scopes, mit dem sich Nutzer in der App anmelden. Leer lassen, wenn die App kein Login über ewws-auth braucht.
+						Siehe <a href={ templ.SafeURL(onboardingAuthURL) }>Onboarding: Login über ewws-auth</a>.
+					</small>
+				</label>
+			</fieldset>
+			<fieldset>
+				<legend>Features</legend>
+				<label>
+					<input type="checkbox" name="websocket" value="1" checked?={ props.PreviousValues.Websocket }/>
+					WebSocket
 				</label>
 				<label>
-					Prod host
-					<input type="text" name="prod_host" required placeholder="my-app.apps.meko.work" value={ props.PreviousValues.ProdHost }/>
+					Ingress auth
+					@selectField("ingress_auth", IngressAuthOptions, props.PreviousValues.IngressAuth, "none")
+				</label>
+			</fieldset>
+			<fieldset>
+				<legend>Secrets</legend>
+				<p class="claim-warning">
+					<strong>Nur Namen und Vault-Suffixe — niemals Secret-Werte eintragen.</strong>
+					Die Werte legt ein Plattform-Admin mit <code>scripts/tenant-keyvault.sh</code> im Key Vault an.
+					Siehe <a href={ templ.SafeURL(secretsGuideURL) }>Secrets-Leitfaden</a> und
+					<a href={ templ.SafeURL(onboardingSecrets) }>Onboarding: Secrets</a>.
+				</p>
+				<label>
+					App-Secrets (optional)
+					<textarea name="secrets" rows="3" placeholder="my-app-db: DATABASE_URL=db-url, DB_PASSWORD=db-password">{ props.PreviousValues.Secrets }</textarea>
+					<small>
+						Ein Secret pro Zeile: <code>&lt;secret-name&gt;: ENV_VAR=vault-suffix, ENV2=suffix2</code>. Zeilen mit <code>#</code> werden ignoriert.
+						Gelesen wird das Vault-Secret <code>&lt;slug&gt;-&lt;stage&gt;-&lt;vault-suffix&gt;</code>; das Präfix setzt das Chart.
+					</small>
+				</label>
+				<label>
+					Shared secrets (optional)
+					<input type="text" name="shared_secrets" placeholder="ipoffice-readonly" value={ props.PreviousValues.SharedSecrets }/>
+					<small>Von der Plattform bereitgestellte Secrets (z. B. <code>ipoffice-readonly</code>), durch Komma getrennt. Sie landen nur am Backend-Pod.</small>
 				</label>
 			</fieldset>
 			<fieldset>
@@ -137,6 +178,97 @@ templ Claim(page PageProps, props ClaimProps) {
 			<button type="submit" class="primary">Open pull request</button>
 		</form>
 	}
+}
+
+// componentFieldset renders the settings of one component; field names are
+// prefixed with name ("backend_image_repo", "backend_env", ...).
+templ componentFieldset(name, title, defaultMemory, defaultCPU string, props ClaimProps, st ClaimComponentFormState) {
+	<fieldset>
+		<legend>{ title }</legend>
+		<p class="muted">wird ignoriert, wenn die Komponente oben nicht angehakt ist</p>
+		<div class="row">
+			<label>
+				Image repository
+				<input type="text" name={ name + "_image_repo" } placeholder={ "ghcr.io/meko-tech/<app>-" + name } value={ st.ImageRepo }/>
+				<small>Pflicht, wenn die Komponente angehakt ist.</small>
+			</label>
+			<label>
+				Initial tag
+				<input type="text" name={ name + "_image_tag" } placeholder="sha-abc1234 oder 1.0.0" value={ st.ImageTag }/>
+				<small>Gilt für staging und prod; <code>latest</code> ist nicht erlaubt; die App-CI überschreibt es danach.</small>
+			</label>
+		</div>
+		<div class="row">
+			<label>
+				Memory limit
+				@selectField(name+"_memory_limit", props.MemoryOptions, st.MemoryLimit, defaultMemory)
+			</label>
+			<label>
+				CPU limit
+				@selectField(name+"_cpu_limit", props.CPUOptions, st.CPULimit, defaultCPU)
+			</label>
+		</div>
+		<label>
+			Port (optional)
+			<input type="number" name={ name + "_port" } min="1024" max="65535" placeholder="8080" value={ st.Port }/>
+			<small>1024–65535; leer = Chart-Default 8080.</small>
+		</label>
+		<div class="row row--3">
+			<label>
+				Liveness path
+				<input type="text" name={ name + "_liveness_path" } placeholder="/healthz" value={ st.LivenessPath }/>
+			</label>
+			<label>
+				Readiness path
+				<input type="text" name={ name + "_readiness_path" } placeholder="/readyz" value={ st.ReadinessPath }/>
+			</label>
+			<label>
+				Startup path
+				<input type="text" name={ name + "_startup_path" } placeholder="/healthz" value={ st.StartupPath }/>
+			</label>
+		</div>
+		<small>Probe-Pfade sind optional; leer = Chart-Default.</small>
+		<label>
+			Env (alle Stages)
+			<textarea name={ name + "_env" } rows="3" placeholder={ "LOG_LEVEL=info\nDB_PASSWORD=secret:my-app-db/DB_PASSWORD" }>{ st.Env }</textarea>
+			<small>
+				Eine Variable pro Zeile: <code>KEY=value</code> oder <code>KEY=secret:&lt;secret-name&gt;/&lt;key&gt;</code>. Zeilen mit <code>#</code> werden ignoriert.
+			</small>
+		</label>
+		<label>
+			env_from secrets (optional)
+			<input type="text" name={ name + "_env_from" } placeholder="my-app-db, ipoffice-readonly" value={ st.EnvFrom }/>
+			<small>Secret-Namen, durch Komma getrennt; alle Keys werden als Env-Variablen geladen. Jeder Name muss unter Secrets oder Shared secrets stehen.</small>
+		</label>
+	</fieldset>
+}
+
+// stageFieldset renders host, enabled and per-component env of one stage;
+// field names are prefixed with name ("staging_host", "staging_enabled", ...).
+templ stageFieldset(name, title, hostPlaceholder string, submitted bool, st ClaimStageFormState) {
+	<fieldset>
+		<legend>Stage { title }</legend>
+		<label>
+			Host
+			<input type="text" name={ name + "_host" } required placeholder={ hostPlaceholder } value={ st.Host }/>
+			<small>Pflicht, auch wenn die Stage deaktiviert ist.</small>
+		</label>
+		<label>
+			<input type="checkbox" name={ name + "_enabled" } value="1" checked?={ checkedOrDefault(submitted, st.Enabled) }/>
+			Enabled
+		</label>
+		<div class="row">
+			<label>
+				Backend env ({ name })
+				<textarea name={ name + "_backend_env" } rows="2" placeholder="FEATURE_X=on">{ st.BackendEnv }</textarea>
+			</label>
+			<label>
+				Frontend env ({ name })
+				<textarea name={ name + "_frontend_env" } rows="2" placeholder="VITE_API_URL=https://…">{ st.FrontendEnv }</textarea>
+			</label>
+		</div>
+		<small>Gleiches Format wie oben; ergänzt bzw. überschreibt die Env der Komponente nur in dieser Stage.</small>
+	</fieldset>
 }
 
 templ selectField(name string, options []string, current, fallback string) {
@@ -151,11 +283,11 @@ templ selectField(name string, options []string, current, fallback string) {
 	</select>
 }
 
-// defaultTrueIfNew picks "checked" semantics:
-// when the user hasn't submitted yet (Slug empty), default to TRUE.
-// On re-render after error, honour the user's actual choice.
-func defaultTrueIfNew(slug string, current bool) bool {
-	if slug == "" {
+// checkedOrDefault picks "checked" semantics: before the first submit the
+// checkbox defaults to checked; on re-render after an error it honours the
+// user's actual choice.
+func checkedOrDefault(submitted, current bool) bool {
+	if !submitted {
 		return true
 	}
 
