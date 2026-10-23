@@ -3,10 +3,13 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
 
+	ghclient "github.com/MeKo-Tech/ewws-platform-ui/internal/github"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/views"
@@ -258,5 +261,96 @@ func TestParseClaimFormErrorsKeepValues(t *testing.T) {
 				t.Errorf("re-rendered form lacks %q", tc.value)
 			}
 		})
+	}
+}
+
+func TestParseClaimFormIgnoresUncheckedComponent(t *testing.T) {
+	junk := map[string]string{
+		"backend_env":         "NOVALUE",
+		"backend_port":        "abc",
+		"staging_backend_env": "X=secret:nokey",
+		"prod_backend_env":    "garbage",
+	}
+
+	form := baseClaimForm()
+	form.Del("has_backend")
+
+	for k, v := range junk {
+		form.Set(k, v)
+	}
+
+	in, st, err := parseClaimForm(form, testUser)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if err := in.Validate(nil); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+
+	if in.Backend.Port != 0 || len(in.Backend.Env) != 0 ||
+		len(in.Staging.BackendEnv) != 0 || len(in.Prod.BackendEnv) != 0 {
+		t.Errorf("unchecked backend leaked into the input: %+v", in)
+	}
+
+	got := map[string]string{
+		"backend_env":         st.Backend.Env,
+		"backend_port":        st.Backend.Port,
+		"staging_backend_env": st.Staging.BackendEnv,
+		"prod_backend_env":    st.Prod.BackendEnv,
+	}
+	for k, v := range junk {
+		if got[k] != v {
+			t.Errorf("form state %s = %q, want raw %q", k, got[k], v)
+		}
+	}
+}
+
+func TestClaimFormDisablesUncheckedComponent(t *testing.T) {
+	html := renderClaimForm(t, views.ClaimFormState{
+		Submitted:   true,
+		HasFrontend: true,
+		Backend:     views.ClaimComponentFormState{Port: "80"},
+		Staging:     views.ClaimStageFormState{BackendEnv: "LEFT=over"},
+	})
+
+	for _, want := range []string{
+		`<fieldset data-claim-component="backend" disabled>`,
+		`<fieldset data-claim-component="frontend">`,
+		`name="staging_backend_env" data-claim-component="backend" disabled`,
+		`name="staging_frontend_env" data-claim-component="frontend" rows=`,
+		`data-claim-toggle="backend"`,
+		`<script src="/static/claim-form.js" defer></script>`,
+		// Values of the disabled component survive the re-render.
+		`value="80"`,
+		"LEFT=over</textarea>",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("form lacks %q", want)
+		}
+	}
+
+	// First GET: both components default to checked, nothing disabled.
+	if html := renderClaimForm(t, views.ClaimFormState{}); strings.Contains(html, " disabled") {
+		t.Error("initial form renders disabled inputs")
+	}
+}
+
+func TestClaimExistsMessage(t *testing.T) {
+	err := fmt.Errorf("open: %w", &ghclient.ClaimExistsError{
+		Slug: "my-app", Path: "apps/my-app.yaml", Branch: "main",
+	})
+
+	msg, ok := claimExistsMessage(err)
+	if !ok || msg != "Slug my-app ist bereits geclaimt (apps/my-app.yaml existiert auf main)" {
+		t.Errorf("message = %q, %t", msg, ok)
+	}
+
+	if _, ok := claimExistsMessage(errors.New("other")); ok {
+		t.Error("unrelated error mapped to claim-exists")
+	}
+
+	if _, ok := claimExistsMessage(nil); ok {
+		t.Error("nil mapped to claim-exists")
 	}
 }

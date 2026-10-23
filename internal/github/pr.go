@@ -34,6 +34,25 @@ type PRResult struct {
 	Number int
 }
 
+// ErrClaimExists is matched (errors.Is) by a *ClaimExistsError: the slug
+// is already claimed on the base branch.
+var ErrClaimExists = errors.New("claim already exists")
+
+// ClaimExistsError names the path that already exists on the base branch.
+// CreateTree would silently replace it, so openClaimPR refuses before
+// writing anything.
+type ClaimExistsError struct {
+	Slug   string
+	Path   string
+	Branch string
+}
+
+func (e *ClaimExistsError) Error() string {
+	return fmt.Sprintf("slug %s is already claimed: %s exists on %s", e.Slug, e.Path, e.Branch)
+}
+
+func (e *ClaimExistsError) Unwrap() error { return ErrClaimExists }
+
 // OpenClaimPR commits all req.Files in a single commit on a new feature
 // branch and opens a PR — all via the user's OAuth client.
 func OpenClaimPR(ctx context.Context, httpClient *http.Client, req PRRequest) (*PRResult, error) {
@@ -43,6 +62,8 @@ func OpenClaimPR(ctx context.Context, httpClient *http.Client, req PRRequest) (*
 // openClaimPR uses the Git Data API so several files land in one commit:
 //
 //  1. Look up the SHA of the base branch (refs/heads/<base>).
+//     Refuse with a *ClaimExistsError if any of req.Files or the
+//     directory tags/<slug> already exists there.
 //  2. Read that commit's tree SHA.
 //  3. Create a tree on top of it with every file as a blob.
 //  4. Create a commit with that tree and the base commit as parent.
@@ -63,17 +84,30 @@ func openClaimPR(ctx context.Context, client *gh.Client, req PRRequest) (*PRResu
 		return nil, fmt.Errorf("base branch %q: %w", req.BaseBranch, err)
 	}
 
-	baseCommit, _, err := client.Git.GetCommit(ctx, owner, repo, baseSHA)
-	if err != nil {
-		return nil, fmt.Errorf("base commit %s: %w", baseSHA, err)
-	}
-
 	paths := make([]string, 0, len(req.Files))
 	for p := range req.Files {
 		paths = append(paths, p)
 	}
 
 	slices.Sort(paths)
+
+	// CreateTree replaces existing paths without complaint, so a claim of
+	// an already-claimed slug would overwrite its registry entry.
+	for _, p := range append(slices.Clone(paths), "tags/"+req.Slug) {
+		exists, err := pathExists(ctx, client, owner, repo, p, baseSHA)
+		if err != nil {
+			return nil, fmt.Errorf("check %s on %s: %w", p, req.BaseBranch, err)
+		}
+
+		if exists {
+			return nil, &ClaimExistsError{Slug: req.Slug, Path: p, Branch: req.BaseBranch}
+		}
+	}
+
+	baseCommit, _, err := client.Git.GetCommit(ctx, owner, repo, baseSHA)
+	if err != nil {
+		return nil, fmt.Errorf("base commit %s: %w", baseSHA, err)
+	}
 
 	entries := make([]*gh.TreeEntry, 0, len(paths))
 	for _, p := range paths {
@@ -182,6 +216,22 @@ func getBranchSHA(ctx context.Context, c *gh.Client, owner, repo, branch string)
 	}
 
 	return ref.GetObject().GetSHA(), nil
+}
+
+// pathExists reports whether path (file or directory) exists at ref.
+func pathExists(ctx context.Context, c *gh.Client, owner, repo, path, ref string) (bool, error) {
+	_, _, resp, err := c.Repositories.GetContents(
+		ctx, owner, repo, path, &gh.RepositoryContentGetOptions{Ref: ref},
+	)
+	if err == nil {
+		return true, nil
+	}
+
+	if resp != nil && resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+
+	return false, err
 }
 
 func createBranch(ctx context.Context, c *gh.Client, owner, repo, branch, fromSHA string) error {

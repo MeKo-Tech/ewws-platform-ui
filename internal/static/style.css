@@ -284,6 +284,9 @@ pre {
 
 .claim-form fieldset:first-of-type { border-top: 0; padding-top: 0; }
 
+.claim-form fieldset:disabled,
+.claim-form textarea:disabled { opacity: 0.55; }
+
 .claim-form legend {
   font-weight: 600;
   font-size: 0.95rem;

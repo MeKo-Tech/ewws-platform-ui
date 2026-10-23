@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -144,19 +145,31 @@ func parseClaimForm(
 
 	var err error
 
-	if in.Backend, err = componentInput("backend", st.Backend); err != nil {
+	// An unchecked component's fields are ignored entirely: leftovers from
+	// before the user unticked it must neither fail parsing nor end up in
+	// the claim. The form state still keeps them for a re-render.
+	if st.HasBackend {
+		if in.Backend, err = componentInput("backend", st.Backend); err != nil {
+			return nil, st, err
+		}
+	}
+
+	if st.HasFrontend {
+		if in.Frontend, err = componentInput("frontend", st.Frontend); err != nil {
+			return nil, st, err
+		}
+	}
+
+	if in.Staging, err = stageInput(
+		"staging",
+		st.Staging,
+		st.HasBackend,
+		st.HasFrontend,
+	); err != nil {
 		return nil, st, err
 	}
 
-	if in.Frontend, err = componentInput("frontend", st.Frontend); err != nil {
-		return nil, st, err
-	}
-
-	if in.Staging, err = stageInput("staging", st.Staging); err != nil {
-		return nil, st, err
-	}
-
-	if in.Prod, err = stageInput("prod", st.Prod); err != nil {
+	if in.Prod, err = stageInput("prod", st.Prod, st.HasBackend, st.HasFrontend); err != nil {
 		return nil, st, err
 	}
 
@@ -201,17 +214,27 @@ func componentInput(
 	return out, nil
 }
 
-func stageInput(name string, st views.ClaimStageFormState) (registry.StageInput, error) {
+// stageInput parses one stage; the per-component env is only read for
+// the enabled components.
+func stageInput(
+	name string,
+	st views.ClaimStageFormState,
+	hasBackend, hasFrontend bool,
+) (registry.StageInput, error) {
 	out := registry.StageInput{Host: st.Host, Enabled: st.Enabled}
 
 	var err error
 
-	if out.BackendEnv, err = registry.ParseEnvLines(st.BackendEnv); err != nil {
-		return out, fmt.Errorf("%s backend env: %w", name, err)
+	if hasBackend {
+		if out.BackendEnv, err = registry.ParseEnvLines(st.BackendEnv); err != nil {
+			return out, fmt.Errorf("%s backend env: %w", name, err)
+		}
 	}
 
-	if out.FrontendEnv, err = registry.ParseEnvLines(st.FrontendEnv); err != nil {
-		return out, fmt.Errorf("%s frontend env: %w", name, err)
+	if hasFrontend {
+		if out.FrontendEnv, err = registry.ParseEnvLines(st.FrontendEnv); err != nil {
+			return out, fmt.Errorf("%s frontend env: %w", name, err)
+		}
 	}
 
 	return out, nil
@@ -250,6 +273,11 @@ func (h Claim) handleSubmit(w http.ResponseWriter, r *http.Request, user *middle
 	}
 
 	prResult, err := h.openPR(r.Context(), user, input, files)
+	if msg, ok := claimExistsMessage(err); ok {
+		h.renderForm(w, r, msg, prev)
+		return
+	}
+
 	if err != nil {
 		h.Logger.Error("open PR", slog.Any("err", err))
 		h.renderForm(w, r, "could not open PR: "+err.Error(), prev)
@@ -273,6 +301,20 @@ func (h Claim) handleSubmit(w http.ResponseWriter, r *http.Request, user *middle
 		RepoURL:    input.RepoURL,
 		StagingURL: "https://" + stagingHost,
 	}))
+}
+
+// claimExistsMessage turns a ghclient.ClaimExistsError into the form error
+// shown to the user; ok is false for every other error (including nil).
+func claimExistsMessage(err error) (string, bool) {
+	var ce *ghclient.ClaimExistsError
+	if !errors.As(err, &ce) {
+		return "", false
+	}
+
+	return fmt.Sprintf(
+		"Slug %s ist bereits geclaimt (%s existiert auf %s)",
+		ce.Slug, ce.Path, ce.Branch,
+	), true
 }
 
 // claimFiles renders apps/<slug>.yaml plus the initial tag files of every

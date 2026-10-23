@@ -106,18 +106,18 @@ templ Claim(page PageProps, props ClaimProps) {
 					<input type="url" name="repo_url" required placeholder="https://github.com/MeKo-Tech/my-app" value={ props.PreviousValues.RepoURL }/>
 				</label>
 				<label>
-					<input type="checkbox" name="has_backend" value="1" checked?={ checkedOrDefault(props.PreviousValues.Submitted, props.PreviousValues.HasBackend) }/>
+					<input type="checkbox" name="has_backend" value="1" data-claim-toggle="backend" checked?={ checkedOrDefault(props.PreviousValues.Submitted, props.PreviousValues.HasBackend) }/>
 					Has backend service
 				</label>
 				<label>
-					<input type="checkbox" name="has_frontend" value="1" checked?={ checkedOrDefault(props.PreviousValues.Submitted, props.PreviousValues.HasFrontend) }/>
+					<input type="checkbox" name="has_frontend" value="1" data-claim-toggle="frontend" checked?={ checkedOrDefault(props.PreviousValues.Submitted, props.PreviousValues.HasFrontend) }/>
 					Has frontend service
 				</label>
 			</fieldset>
-			@componentFieldset("backend", "Backend", "256Mi", "250m", props, props.PreviousValues.Backend)
-			@componentFieldset("frontend", "Frontend", "128Mi", "100m", props, props.PreviousValues.Frontend)
-			@stageFieldset("staging", "Staging", "my-app.staging.apps.meko.work", props.PreviousValues.Submitted, props.PreviousValues.Staging)
-			@stageFieldset("prod", "Prod", "my-app.apps.meko.work", props.PreviousValues.Submitted, props.PreviousValues.Prod)
+			@componentFieldset("backend", "Backend", "256Mi", "250m", props.backendOn(), props, props.PreviousValues.Backend)
+			@componentFieldset("frontend", "Frontend", "128Mi", "100m", props.frontendOn(), props, props.PreviousValues.Frontend)
+			@stageFieldset("staging", "Staging", "my-app.staging.apps.meko.work", props, props.PreviousValues.Staging)
+			@stageFieldset("prod", "Prod", "my-app.apps.meko.work", props, props.PreviousValues.Prod)
 			<p class="claim-hint">
 				Hinweis: <code>enabled: false</code> wirkt erst nach dem Plattform-Rollout (meko-app Chart 1.10.0 und ApplicationSet-Unterstützung sind noch nicht live). Bis dahin wird die Stage trotzdem deployt.
 			</p>
@@ -177,13 +177,14 @@ templ Claim(page PageProps, props ClaimProps) {
 			</fieldset>
 			<button type="submit" class="primary">Open pull request</button>
 		</form>
+		<script src="/static/claim-form.js" defer></script>
 	}
 }
 
 // componentFieldset renders the settings of one component; field names are
 // prefixed with name ("backend_image_repo", "backend_env", ...).
-templ componentFieldset(name, title, defaultMemory, defaultCPU string, props ClaimProps, st ClaimComponentFormState) {
-	<fieldset>
+templ componentFieldset(name, title, defaultMemory, defaultCPU string, enabled bool, props ClaimProps, st ClaimComponentFormState) {
+	<fieldset data-claim-component={ name } disabled?={ !enabled }>
 		<legend>{ title }</legend>
 		<p class="muted">wird ignoriert, wenn die Komponente oben nicht angehakt ist</p>
 		<div class="row">
@@ -245,7 +246,7 @@ templ componentFieldset(name, title, defaultMemory, defaultCPU string, props Cla
 
 // stageFieldset renders host, enabled and per-component env of one stage;
 // field names are prefixed with name ("staging_host", "staging_enabled", ...).
-templ stageFieldset(name, title, hostPlaceholder string, submitted bool, st ClaimStageFormState) {
+templ stageFieldset(name, title, hostPlaceholder string, props ClaimProps, st ClaimStageFormState) {
 	<fieldset>
 		<legend>Stage { title }</legend>
 		<label>
@@ -254,17 +255,17 @@ templ stageFieldset(name, title, hostPlaceholder string, submitted bool, st Clai
 			<small>Pflicht, auch wenn die Stage deaktiviert ist.</small>
 		</label>
 		<label>
-			<input type="checkbox" name={ name + "_enabled" } value="1" checked?={ checkedOrDefault(submitted, st.Enabled) }/>
+			<input type="checkbox" name={ name + "_enabled" } value="1" checked?={ checkedOrDefault(props.PreviousValues.Submitted, st.Enabled) }/>
 			Enabled
 		</label>
 		<div class="row">
 			<label>
 				Backend env ({ name })
-				<textarea name={ name + "_backend_env" } rows="2" placeholder="FEATURE_X=on">{ st.BackendEnv }</textarea>
+				<textarea name={ name + "_backend_env" } data-claim-component="backend" disabled?={ !props.backendOn() } rows="2" placeholder="FEATURE_X=on">{ st.BackendEnv }</textarea>
 			</label>
 			<label>
 				Frontend env ({ name })
-				<textarea name={ name + "_frontend_env" } rows="2" placeholder="VITE_API_URL=https://…">{ st.FrontendEnv }</textarea>
+				<textarea name={ name + "_frontend_env" } data-claim-component="frontend" disabled?={ !props.frontendOn() } rows="2" placeholder="VITE_API_URL=https://…">{ st.FrontendEnv }</textarea>
 			</label>
 		</div>
 		<small>Gleiches Format wie oben; ergänzt bzw. überschreibt die Env der Komponente nur in dieser Stage.</small>
@@ -281,6 +282,18 @@ templ selectField(name string, options []string, current, fallback string) {
 			}
 		}
 	</select>
+}
+
+// backendOn and frontendOn report whether the component checkbox renders
+// checked. An unchecked component's inputs render disabled so they neither
+// block browser validation nor get submitted; claim-form.js keeps that in
+// sync while the user toggles the checkboxes.
+func (p ClaimProps) backendOn() bool {
+	return checkedOrDefault(p.PreviousValues.Submitted, p.PreviousValues.HasBackend)
+}
+
+func (p ClaimProps) frontendOn() bool {
+	return checkedOrDefault(p.PreviousValues.Submitted, p.PreviousValues.HasFrontend)
 }
 
 // checkedOrDefault picks "checked" semantics: before the first submit the

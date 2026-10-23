@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -44,6 +45,14 @@ type fakeGitHub struct {
 		Base  string `json:"base"`
 	}
 	refStatus int
+
+	// existing maps a repository path to "file", "dir" or "error" (500);
+	// every other path is a 404 on the Contents API.
+	existing map[string]string
+	// contentRefs records the ref query of every Contents API call.
+	contentRefs []string
+	// writes records every write call (tree, commit, ref, PR).
+	writes []string
 }
 
 func (f *fakeGitHub) handler(t *testing.T) http.Handler {
@@ -101,7 +110,34 @@ func (f *fakeGitHub) handler(t *testing.T) http.Handler {
 		_, _ = w.Write([]byte(`{"number":42,"html_url":"https://github.com/o/r/pull/42"}`))
 	})
 
-	return mux
+	mux.HandleFunc(
+		"GET /repos/o/r/contents/{path...}",
+		func(w http.ResponseWriter, r *http.Request) {
+			f.contentRefs = append(f.contentRefs, r.URL.Query().Get("ref"))
+
+			p := r.PathValue("path")
+			switch f.existing[p] {
+			case "file":
+				_, _ = w.Write([]byte(`{"type":"file","path":"` + p + `"}`))
+			case "error":
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"message":"boom"}`))
+			case "dir":
+				_, _ = w.Write([]byte(`[{"type":"file","path":"` + p + `/staging.yaml"}]`))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"message":"Not Found"}`))
+			}
+		},
+	)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			f.writes = append(f.writes, r.Method+" "+r.URL.Path)
+		}
+
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func newTestClient(t *testing.T, f *fakeGitHub) *gh.Client {
@@ -220,7 +256,76 @@ func TestOpenClaimPROneCommit(t *testing.T) {
 				f.pr.Title != "feat: claim my-app" {
 				t.Errorf("pr = %+v", f.pr)
 			}
+
+			// Every file plus the tags/<slug> directory, all at the base SHA.
+			if len(f.contentRefs) != len(tc.wantPaths)+1 {
+				t.Errorf("contents checks = %d, want %d", len(f.contentRefs), len(tc.wantPaths)+1)
+			}
+
+			for _, ref := range f.contentRefs {
+				if ref != "base-sha" {
+					t.Errorf("contents checked at ref %q, want base-sha", ref)
+				}
+			}
 		})
+	}
+}
+
+func TestOpenClaimPRClaimExists(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, kind string
+	}{
+		{"app file exists", "apps/my-app.yaml", "file"},
+		{"tag directory exists", "tags/my-app", "dir"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeGitHub{existing: map[string]string{tc.path: tc.kind}}
+
+			_, err := openClaimPR(context.Background(), newTestClient(t, f), PRRequest{
+				Repo:   "o/r",
+				Slug:   "my-app",
+				Files:  claimFiles(t, true),
+				Branch: "feat/claim-my-app",
+				Title:  "feat: claim my-app",
+			})
+			if !errors.Is(err, ErrClaimExists) {
+				t.Fatalf("err = %v, want ErrClaimExists", err)
+			}
+
+			var ce *ClaimExistsError
+			if !errors.As(err, &ce) || ce.Path != tc.path || ce.Slug != "my-app" ||
+				ce.Branch != "main" {
+				t.Errorf("claim exists error = %+v", ce)
+			}
+
+			if len(f.writes) != 0 {
+				t.Errorf("write calls on collision: %v", f.writes)
+			}
+		})
+	}
+}
+
+func TestOpenClaimPRContentsError(t *testing.T) {
+	f := &fakeGitHub{existing: map[string]string{"boom": "error"}}
+	client := newTestClient(t, f)
+
+	// A 500 on the Contents API must abort, not count as "absent".
+	_, err := openClaimPR(context.Background(), client, PRRequest{
+		Repo: "o/r",
+		Slug: "my-app",
+		Files: map[string][]byte{
+			"apps/my-app.yaml": []byte("slug: my-app\n"),
+			"boom":             []byte("x"),
+		},
+		Branch: "feat/claim-my-app",
+		Title:  "feat: claim my-app",
+	})
+	if err == nil || errors.Is(err, ErrClaimExists) {
+		t.Fatalf("err = %v, want a contents error", err)
+	}
+
+	if len(f.writes) != 0 {
+		t.Errorf("write calls after contents error: %v", f.writes)
 	}
 }
 
