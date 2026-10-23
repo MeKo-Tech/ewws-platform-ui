@@ -133,6 +133,46 @@ pre {
 
 .hero p { color: var(--muted); margin: 0; }
 
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  margin-top: 1rem;
+}
+
+.empty .hero__actions { justify-content: center; }
+.empty p { margin: 0; }
+
+.hero__secondary { font-weight: 500; }
+
+/* Generic primary button (link or button) */
+
+.btn-primary {
+  display: inline-block;
+  background: var(--meko-blue);
+  color: #ffffff;
+  border: 0;
+  padding: 0.7rem 1.2rem;
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn-primary:hover,
+.btn-primary:focus-visible {
+  background: var(--meko-blue-dark);
+  color: #ffffff;
+  text-decoration: none;
+}
+
+@media (max-width: 700px) {
+  .hero__actions .btn-primary { flex: 1 1 100%; text-align: center; }
+}
+
 /* Apps table */
 
 .apps,
