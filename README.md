@@ -21,17 +21,20 @@ Lives at `https://platform.apps.meko.work` (Tailscale-internal, behind Traefik).
 
 | Route | Auth | Notes |
 | --- | --- | --- |
-| `GET /` | anonymous | landing + grid of all apps |
-| `GET /app/<slug>` | anonymous | detail page (registry YAML + Argo CD status) |
-| `GET /claim` | session | claim form |
-| `POST /claim` | session + CSRF | opens PR, redirects to it |
+| `GET /` | anonymous | landing + dashboard of all apps, "Neue App" CTA |
+| `GET /app/{slug}` | anonymous | detail page (registry YAML + Argo CD status) |
+| `POST /app/{slug}/bootstrap` | session (401 without; no CSRF token) | re-runs the repo bootstrap (test-pr-title, release-please, branch protection) with the user's token; returns an HTMX result fragment |
+| `GET /claim` | session (anonymous → redirect to `/auth/login`) | claim form |
+| `POST /claim` | session + CSRF | opens the registry PR, bootstraps the repo, renders a success page linking the PR |
+| `GET /docs` | anonymous | onboarding + best-practice page |
 | `GET /auth/login` | — | starts GitHub OAuth |
-| `GET /auth/callback` | — | finishes GitHub OAuth |
-| `POST /auth/logout` | — | clears session |
+| `GET /auth/callback` | — | finishes GitHub OAuth, redirects to `/` |
+| `POST /auth/logout` | — | clears session, redirects to `/` |
 | `GET /healthz` | — | always 200 |
-| `GET /readyz` | — | 200 when OAuth config present |
-| `GET /partials/app-status/<slug>` | — | HTMX `<td>` fragment, 30s refresh |
-| `GET /static/*` | — | embedded assets |
+| `GET /readyz` | — | 200 when OAuth config present, else 503 |
+| `GET /partials/app-status/{slug}` | — | HTMX status `<td>` fragment (prod Argo CD state) |
+| `GET /partials/compliance/{slug}` | — | HTMX compliance badge fragment |
+| `GET /static/` | — | embedded assets |
 
 ## Env vars
 
@@ -66,7 +69,7 @@ openssl rand -base64 32
 ## Local dev
 
 ```sh
-go install github.com/a-h/templ/cmd/templ@v0.3.943
+go install github.com/a-h/templ/cmd/templ@v0.3.1070
 templ generate ./...
 go run ./cmd/server
 ```

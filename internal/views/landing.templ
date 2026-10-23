@@ -323,6 +323,7 @@ templ Landing(props PageProps, tenants []status.Tenant) {
 				<a href="https://github.com/MeKo-Tech/ewws-apps-registry"><code>ewws-apps-registry</code></a>,
 				Argo CD, Prometheus, GitHub.
 			</p>
+			@newAppActions()
 		</section>
 		@dashboardToolbar()
 		@thresholdSettings()
@@ -332,6 +333,18 @@ templ Landing(props PageProps, tenants []status.Tenant) {
 		</div>
 		<script src="/static/dashboard.js" defer></script>
 	}
+}
+
+// onboardingGuideURL is the step-by-step guide for claiming a new app.
+const onboardingGuideURL = "https://github.com/MeKo-Tech/ewws-apps-registry/blob/main/docs/onboarding.md"
+
+// newAppActions is the "Neue App" call-to-action. Visible to everyone:
+// /claim redirects anonymous users to /auth/login on its own.
+templ newAppActions() {
+	<div class="hero__actions">
+		<a class="btn-primary" href="/claim">Neue App</a>
+		<a class="hero__secondary" href={ templ.URL(onboardingGuideURL) }>Onboarding-Anleitung</a>
+	</div>
 }
 
 templ dashboardToolbar() {
@@ -408,7 +421,10 @@ templ thresholdSettings() {
 templ cardsView(tenants []status.Tenant) {
 	<div class="cards-view">
 		if len(tenants) == 0 {
-			<p class="empty">Noch keine Tenants geclaimt.</p>
+			<div class="empty">
+				<p>Noch keine Tenants geclaimt.</p>
+				@newAppActions()
+			</div>
 		}
 		for _, t := range tenants {
 			@tenantCard(t)
@@ -630,7 +646,7 @@ templ tableView(tenants []status.Tenant) {
 		</thead>
 		<tbody>
 			if len(tenants) == 0 {
-				<tr><td colspan="16" class="empty">Noch keine Tenants geclaimt.</td></tr>
+				<tr><td colspan="16" class="empty">Noch keine Tenants geclaimt. <a href="/claim">Neue App claimen</a></td></tr>
 			}
 			for _, t := range tenants {
 				@tenantRow(t)
