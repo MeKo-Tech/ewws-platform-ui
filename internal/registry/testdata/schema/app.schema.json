@@ -1,0 +1,828 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/MeKo-Tech/ewws-apps-registry/schemas/app.schema.json",
+  "title": "Vibe-Tenant App",
+  "description": "Source-of-truth descriptor for a tenant subdomain claim in the Vibe-Tenant Platform.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "slug",
+    "owners",
+    "repo",
+    "stages",
+    "images",
+    "resources",
+    "features",
+    "created_at"
+  ],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "platform.meko.dev/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "App"
+    },
+    "slug": {
+      "type": "string",
+      "description": "DNS-safe subdomain slug. Must match filename (without .yaml).",
+      "pattern": "^[a-z][a-z0-9-]{2,30}[a-z0-9]$"
+    },
+    "owners": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["technical", "organizational"],
+      "properties": {
+        "technical": {
+          "type": "string",
+          "description": "GitHub login of the technical owner.",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$"
+        },
+        "organizational": {
+          "type": "string",
+          "description": "GitHub login of the organizational owner.",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$"
+        }
+      }
+    },
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "has_backend", "has_frontend"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "default_branch": {
+          "type": "string",
+          "default": "main",
+          "minLength": 1,
+          "maxLength": 250
+        },
+        "has_backend": {
+          "type": "boolean"
+        },
+        "has_frontend": {
+          "type": "boolean"
+        },
+        "dockerfile_backend": {
+          "type": "string",
+          "default": "./backend/Dockerfile",
+          "minLength": 1
+        },
+        "dockerfile_frontend": {
+          "type": "string",
+          "default": "./frontend/Dockerfile",
+          "minLength": 1
+        }
+      }
+    },
+    "stages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["staging", "prod"],
+      "properties": {
+        "staging": { "$ref": "#/definitions/stage" },
+        "prod": { "$ref": "#/definitions/stage" }
+      }
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Image of every component the claim enables (repo.has_backend / repo.has_frontend; enforced by scripts/validate-claims.sh). A block for a disabled component is an error.",
+      "minProperties": 1,
+      "properties": {
+        "backend": { "$ref": "#/definitions/imageRef" },
+        "frontend": { "$ref": "#/definitions/imageRef" }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Resources of every enabled component (enforced by scripts/validate-claims.sh). A block for a disabled component is an error.",
+      "minProperties": 1,
+      "properties": {
+        "backend": { "$ref": "#/definitions/resourceBlock" },
+        "frontend": { "$ref": "#/definitions/resourceBlock" }
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "websocket": {
+          "type": "boolean",
+          "default": false
+        },
+        "scheduled_jobs": {
+          "type": "array",
+          "default": [],
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "schedule"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,40}[a-z0-9]$"
+              },
+              "schedule": {
+                "type": "string",
+                "description": "Cron expression (5 fields).",
+                "minLength": 9
+              },
+              "command": {
+                "description": "Command to run. A string runs via [\"/bin/sh\", \"-c\", <string>]; an array is the exec form.",
+                "oneOf": [
+                  { "type": "string", "minLength": 1 },
+                  { "type": "array", "minItems": 1, "items": { "type": "string" } }
+                ]
+              },
+              "args": {
+                "type": "array",
+                "description": "Arguments appended to command.",
+                "items": { "type": "string" }
+              },
+              "component": {
+                "type": "string",
+                "enum": ["backend", "frontend"],
+                "default": "backend",
+                "description": "Whose image, env, env_from, writable dirs, PVC and resources the job uses."
+              },
+              "time_zone": {
+                "type": "string",
+                "description": "IANA time zone for schedule.",
+                "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$",
+                "default": "Europe/Berlin"
+              },
+              "concurrency_policy": {
+                "type": "string",
+                "enum": ["Allow", "Forbid", "Replace"],
+                "default": "Forbid"
+              }
+            }
+          }
+        },
+        "ingress_auth": {
+          "type": "string",
+          "enum": ["none", "github-org", "ewws-auth"],
+          "default": "none"
+        },
+        "custom_domains": {
+          "type": "array",
+          "deprecated": true,
+          "description": "Deprecated and not rendered. Use stages.<s>.host and stages.<s>.extra_hosts (any one-level host under apps.meko.dev / apps.meko.work).",
+          "default": [],
+          "items": {
+            "type": "string",
+            "format": "hostname"
+          }
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional link to ewws-auth. Most apps need no permissions and omit this block entirely.",
+      "properties": {
+        "scope": {
+          "type": "string",
+          "description": "ewws-auth scope that owns this app's permissions (the `scope:` of a file under ewws-auth/deployments/ewws-auth/bootstrap/scopes/, e.g. `ewlt`). The platform UI uses it to show the scope's permissions and URLs; it does not grant anything.",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "shared_secrets": {
+      "type": "array",
+      "default": [],
+      "description": "Opt-in list of platform-provided shared secrets. Each name must match a Secret published by ewws-infra/charts/platform-shared-secrets — the platform copies the Secret into the tenant namespace and the meko-app chart mounts it as envFrom on the backend pod. Front-end pods do NOT receive shared secrets.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{1,30}[a-z0-9]$"
+      },
+      "uniqueItems": true
+    },
+    "writable_dirs": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-component absolute paths that must be writable at runtime. The platform pins readOnlyRootFilesystem on tenant pods, so apps that mkdir at startup (cache, generated-data, temp output) need to declare those paths here. The chart renders one emptyDir (16Mi) + volumeMount per entry, named wdir-<index>.",
+      "properties": {
+        "backend": { "$ref": "#/definitions/writableDirList" },
+        "frontend": { "$ref": "#/definitions/writableDirList" }
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional per-component runtime settings (env, env_from, persistence, probes, node_selector, host_paths).",
+      "properties": {
+        "backend": { "$ref": "#/definitions/component" },
+        "frontend": { "$ref": "#/definitions/component" }
+      }
+    },
+    "extra_workloads": {
+      "type": "array",
+      "default": [],
+      "maxItems": 5,
+      "description": "Extra Deployments without Ingress (workers, classifiers; a namespace-internal Service only with `service`), running the image of an enabled component. Names unique (enforced by scripts/validate-claims.sh).",
+      "items": { "$ref": "#/definitions/extraWorkload" }
+    },
+    "secrets": {
+      "type": "array",
+      "default": [],
+      "maxItems": 20,
+      "description": "App-specific secrets from Azure Key Vault meko-apps. Each entry renders one ExternalSecret creating a Secret named `name`; reference it via components.<c>.env_from. Names are unique and must not repeat a shared_secrets entry (enforced by scripts/validate-claims.sh).",
+      "items": { "$ref": "#/definitions/externalSecret" }
+    },
+    "quota": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-stage namespace ResourceQuota. Omitted keys use the chart defaults. Quantity bounds are enforced by scripts/validate-claims.sh.",
+      "properties": {
+        "cpu": { "$ref": "#/definitions/cpuQuantity", "description": "limits.cpu, <= 8." },
+        "memory": { "$ref": "#/definitions/memoryQuantity", "description": "limits.memory, <= 16Gi." },
+        "storage": { "$ref": "#/definitions/memoryQuantity", "description": "requests.storage, <= 50Gi." },
+        "pods": { "type": "integer", "minimum": 1, "maximum": 30 }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date"
+    },
+    "status_history": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["at", "action", "by"],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "created",
+              "approved",
+              "deployed",
+              "suspended",
+              "resumed",
+              "archived",
+              "renamed",
+              "promoted"
+            ]
+          },
+          "by": {
+            "type": "string",
+            "description": "GitHub login or platform actor.",
+            "minLength": 1
+          },
+          "pr": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host"],
+      "properties": {
+        "host": {
+          "type": "string",
+          "format": "hostname",
+          "minLength": 3,
+          "maxLength": 253
+        },
+        "extra_hosts": {
+          "type": "array",
+          "description": "Additional hosts served by the same ingress (same TLS secret). Exactly one label under apps.meko.dev / apps.meko.work, or the wildcard certificate does not cover it.",
+          "default": [],
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.apps\\.meko\\.(dev|work)$"
+          }
+        },
+        "auto_deploy_branch": {
+          "type": "string",
+          "deprecated": true,
+          "description": "Deprecated and being retired; not consumed. Accepted for backwards compatibility only.",
+          "minLength": 1,
+          "maxLength": 250
+        },
+        "require_manual_promotion": {
+          "type": "boolean",
+          "default": false
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false = the ApplicationSet generates no Application for this stage (needs the vibe-tenants ApplicationSet with stage filtering in ewws-infra; until then the stage still deploys). `host` stays required even when disabled. At least one stage must be enabled (enforced by scripts/validate-claims.sh)."
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-stage overrides of components.<c>. Only for enabled components (enforced by scripts/validate-claims.sh).",
+          "properties": {
+            "backend": { "$ref": "#/definitions/stageComponent" },
+            "frontend": { "$ref": "#/definitions/stageComponent" }
+          }
+        }
+      }
+    },
+    "stageComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "env": {
+          "$ref": "#/definitions/envMap",
+          "description": "Merged key by key over components.<c>.env in this stage; the stage value wins. Same value shapes as components.<c>.env (string or {secret, key}). A key can only be overridden, not removed. Applies to the component's Deployment and to the scheduled jobs of that component."
+        }
+      }
+    },
+    "resourceBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["memory_limit", "cpu_limit"],
+      "properties": {
+        "memory_limit": {
+          "$ref": "#/definitions/memoryQuantity",
+          "description": "Container memory limit (e.g. 256Mi, 1Gi), <= 4Gi."
+        },
+        "cpu_limit": {
+          "$ref": "#/definitions/cpuQuantity",
+          "description": "Container CPU limit (e.g. 250m, 1, 1.5), <= 4 cores."
+        },
+        "memory_request": {
+          "$ref": "#/definitions/memoryQuantity",
+          "description": "Optional memory request, <= memory_limit."
+        },
+        "cpu_request": {
+          "$ref": "#/definitions/cpuQuantity",
+          "description": "Optional CPU request, <= cpu_limit."
+        },
+        "replicas": {
+          "description": "1-10 for both stages, or per stage {staging, prod} (1-10 each). Default 1.",
+          "default": 1,
+          "oneOf": [
+            { "type": "integer", "minimum": 1, "maximum": 10 },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["staging", "prod"],
+              "properties": {
+                "staging": { "type": "integer", "minimum": 1, "maximum": 10 },
+                "prod": { "type": "integer", "minimum": 1, "maximum": 10 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "workloadReplicas": {
+      "description": "0-10 for both stages, or per stage {staging, prod} (0-10 each). 0 = not rendered in that stage. Default 1.",
+      "default": 1,
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 10 },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["staging", "prod"],
+          "properties": {
+            "staging": { "type": "integer", "minimum": 0, "maximum": 10 },
+            "prod": { "type": "integer", "minimum": 0, "maximum": 10 }
+          }
+        }
+      ]
+    },
+    "extraWorkload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Extra Deployment <release>-<name> without Ingress, running the image of a component. Gets a namespace-internal Service only with `service`.",
+      "required": ["name", "image_from", "memory_limit", "cpu_limit"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,20}[a-z0-9]$",
+          "not": { "enum": ["backend", "frontend"] }
+        },
+        "image_from": {
+          "type": "string",
+          "enum": ["backend", "frontend"],
+          "description": "Component whose image and tag the workload runs. Must be enabled."
+        },
+        "command": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "replicas": { "$ref": "#/definitions/workloadReplicas" },
+        "memory_limit": { "$ref": "#/definitions/memoryQuantity", "description": "<= 4Gi." },
+        "cpu_limit": { "$ref": "#/definitions/cpuQuantity", "description": "<= 4 cores." },
+        "memory_request": { "$ref": "#/definitions/memoryQuantity", "description": "<= memory_limit." },
+        "cpu_request": { "$ref": "#/definitions/cpuQuantity", "description": "<= cpu_limit." },
+        "env": { "$ref": "#/definitions/envMap" },
+        "env_from": { "$ref": "#/definitions/envFromList" },
+        "writable_dirs": { "$ref": "#/definitions/writableDirList" },
+        "strategy": {
+          "type": "string",
+          "enum": ["RollingUpdate", "Recreate"],
+          "default": "RollingUpdate"
+        },
+        "probes": {
+          "$ref": "#/definitions/probeSet",
+          "description": "None by default. Every probe given needs a `port` (enforced by scripts/validate-claims.sh)."
+        },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Renders a ClusterIP Service named <slug>-<stage>-<name> (same name as the Deployment) on `port` (container port named `http`) plus a NetworkPolicy allowing ingress to it from pods in the same tenant namespace. No Ingress. Not rendered in a stage where the workload's replicas are 0.",
+          "required": ["port"],
+          "properties": {
+            "port": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535,
+              "description": "Port the workload listens on; Service port and targetPort."
+            }
+          }
+        }
+      }
+    },
+    "imageRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "description": "OCI image repository. Kyverno on chungus restricts pulls to ghcr.io/MeKo-Tech/*, zot.ewws.meko.dev/*, docker.io/library/*, registry.k8s.io/*, or quay.io/*.",
+          "minLength": 3,
+          "maxLength": 253
+        },
+        "tag": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["staging", "prod"],
+          "description": "Image tags per stage. argocd-image-updater writes back into `tag.<stage>` so staging (newest sha-*) and prod (newest semver) don't overwrite each other.",
+          "properties": {
+            "staging": { "$ref": "#/definitions/imageTagValue" },
+            "prod": { "$ref": "#/definitions/imageTagValue" }
+          }
+        }
+      }
+    },
+    "imageTagValue": {
+      "type": "string",
+      "description": "Image tag. May not be 'latest' — Kyverno disallow-latest-tag blocks it.",
+      "pattern": "^(?!latest$)[A-Za-z0-9_][A-Za-z0-9_.\\-]{0,127}$"
+    },
+    "writableDirList": {
+      "type": "array",
+      "default": [],
+      "uniqueItems": true,
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "description": "Absolute path inside the container. Must start with `/`, not be `/`, have no trailing slash, `//`, `.` or `..` segments, and not be `/tmp`, `/var/cache/nginx`, `/var/run` or below them (already provided by the chart).",
+        "pattern": "^(?!/tmp(/|$)|/var/cache/nginx(/|$)|/var/run(/|$))(/(?!\\.{1,2}(/|$))[A-Za-z0-9_.@+-]+)+$",
+        "minLength": 2,
+        "maxLength": 200
+      }
+    },
+    "memoryQuantity": {
+      "type": "string",
+      "description": "Kubernetes memory quantity (e.g. 256Mi, 1Gi). Upper bounds are enforced by scripts/validate-claims.sh.",
+      "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|K|M|G|T)?$"
+    },
+    "cpuQuantity": {
+      "type": "string",
+      "description": "Kubernetes CPU quantity (e.g. 250m, 1, 1.5). Quote plain numbers. Upper bounds are enforced by scripts/validate-claims.sh.",
+      "pattern": "^[0-9]+(\\.[0-9]+)?m?$"
+    },
+    "absolutePath": {
+      "type": "string",
+      "description": "Absolute path: starts with `/`, is not `/`, has no trailing slash and no `.`/`..` segments.",
+      "pattern": "^(/(?!\\.{1,2}(/|$))[A-Za-z0-9_.@+-]+)+$",
+      "minLength": 2,
+      "maxLength": 200
+    },
+    "mountPath": {
+      "type": "string",
+      "description": "Absolute path inside the container (rules of absolutePath). Not /tmp, /var/cache/nginx or /var/run or anything below them: the chart mounts those itself.",
+      "pattern": "^(?!/tmp(/|$)|/var/cache/nginx(/|$)|/var/run(/|$))(/(?!\\.{1,2}(/|$))[A-Za-z0-9_.@+-]+)+$",
+      "minLength": 2,
+      "maxLength": 200
+    },
+    "k8sName": {
+      "type": "string",
+      "description": "Kubernetes object name (DNS-1123 label).",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "envName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "maxLength": 128
+    },
+    "envMap": {
+      "type": "object",
+      "description": "Environment variables NAME -> value, max 50. A value is a string (quote numbers and booleans) or {secret, key}: one key of a Secret (valueFrom.secretKeyRef); the secret must be in shared_secrets or secrets[].name (enforced by scripts/validate-claims.sh).",
+      "maxProperties": 50,
+      "propertyNames": { "$ref": "#/definitions/envName" },
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string", "maxLength": 4096 },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["secret", "key"],
+            "properties": {
+              "secret": { "$ref": "#/definitions/k8sName" },
+              "key": {
+                "type": "string",
+                "description": "Key inside the Secret.",
+                "pattern": "^(?!\\.$)(?!\\.\\.)[-._a-zA-Z0-9]+$",
+                "maxLength": 253
+              }
+            }
+          }
+        ]
+      }
+    },
+    "envFromList": {
+      "type": "array",
+      "description": "Secrets or ConfigMaps in the namespace whose keys become environment variables. A secret that is an external `secrets` entry not active in the current stage is dropped by the chart.",
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["secret"],
+            "properties": { "secret": { "$ref": "#/definitions/k8sName" } }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["config_map"],
+            "properties": { "config_map": { "$ref": "#/definitions/k8sName" } }
+          }
+        ]
+      }
+    },
+    "probeSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Overrides merged over the chart's default probes, per kind.",
+      "properties": {
+        "disabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "true renders no liveness, readiness or startup probe at all."
+        },
+        "liveness": { "$ref": "#/definitions/probe" },
+        "readiness": { "$ref": "#/definitions/probe" },
+        "startup": { "$ref": "#/definitions/probe" }
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-component runtime settings. Everything is optional.",
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535,
+          "default": 8080,
+          "description": "Port the container listens on (containerPort, Service targetPort, probe port). Must be >= 1024: the chart drops all capabilities and runs non-root, so rebuild images that listen on 80 to listen on e.g. 8080."
+        },
+        "run_as_user": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "default": 1000,
+          "description": "UID the container runs as; also runAsGroup and fsGroup. E.g. 101 for nginx images, 65532 for distroless nonroot."
+        },
+        "env": { "$ref": "#/definitions/envMap" },
+        "env_from": { "$ref": "#/definitions/envFromList" },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "One PersistentVolumeClaim for this component, kept on prune. Size <= 20Gi (enforced by scripts/validate-claims.sh).",
+          "required": [
+            "size",
+            "mount_path"
+          ],
+          "properties": {
+            "size": {
+              "$ref": "#/definitions/memoryQuantity"
+            },
+            "mount_path": {
+              "$ref": "#/definitions/mountPath"
+            },
+            "storage_class": {
+              "type": "string",
+              "enum": [
+                "local-path"
+              ],
+              "default": "local-path"
+            }
+          }
+        },
+        "probes": { "$ref": "#/definitions/probeSet" },
+        "node_selector": {
+          "type": "object",
+          "description": "Pins the component to nodes. GATED: every key/value must be allowlisted for this slug in allowlists/host-access.yaml.",
+          "minProperties": 1,
+          "maxProperties": 5,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$",
+            "maxLength": 317
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$"
+          }
+        },
+        "host_paths": {
+          "type": "array",
+          "description": "hostPath mounts (type Directory). GATED: every `path` must be allowlisted for this slug in allowlists/host-access.yaml.",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "mount_path"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "#/definitions/absolutePath"
+              },
+              "mount_path": {
+                "$ref": "#/definitions/mountPath"
+              },
+              "read_only": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Probe override. type http (default) probes `path` on `port`; type tcp only opens `port` and takes no `path`. Omitted keys keep the chart default.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "http",
+            "tcp"
+          ],
+          "default": "http"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9_./?=&%~+-]*$",
+          "maxLength": 200
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "initial_delay_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600
+        },
+        "period_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        },
+        "failure_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "if": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "tcp"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "port"
+        ],
+        "properties": {
+          "port": true,
+          "path": false
+        }
+      },
+      "else": {
+        "if": {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": true
+          }
+        },
+        "then": {
+          "type": "object",
+          "required": [
+            "path"
+          ],
+          "properties": {
+            "path": true
+          }
+        }
+      }
+    },
+    "externalSecret": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "data"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the Kubernetes Secret the ExternalSecret creates. Unique, and not one of shared_secrets.",
+          "pattern": "^[a-z][a-z0-9-]{1,40}[a-z0-9]$"
+        },
+        "stages": {
+          "type": "array",
+          "description": "Stages that get this secret. Default: both.",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "staging",
+              "prod"
+            ]
+          },
+          "default": [
+            "staging",
+            "prod"
+          ]
+        },
+        "refresh_interval": {
+          "type": "string",
+          "description": "How often external-secrets re-reads the vault (Go duration, e.g. 1h, 30m).",
+          "pattern": "^([0-9]+(s|m|h))+$",
+          "default": "1h"
+        },
+        "data": {
+          "type": "object",
+          "description": "ENV_KEY -> vault secret suffix. The vault secret read is `<slug>-<stage>-<suffix>` in Azure Key Vault meko-apps; the prefix is added by the chart.",
+          "minProperties": 1,
+          "maxProperties": 50,
+          "propertyNames": {
+            "$ref": "#/definitions/envName"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?$"
+          }
+        }
+      }
+    }
+  }
+}

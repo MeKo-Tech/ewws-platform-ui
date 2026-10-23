@@ -108,16 +108,20 @@ func (h Claim) handleSubmit(w http.ResponseWriter, r *http.Request, user *middle
 		RepoURL:             prev.RepoURL,
 		HasBackend:          prev.HasBackend,
 		HasFrontend:         prev.HasFrontend,
-		BackendMemoryLimit:  prev.BackendMemoryLimit,
-		BackendCPULimit:     prev.BackendCPULimit,
-		FrontendMemoryLimit: prev.FrontendMemoryLimit,
-		FrontendCPULimit:    prev.FrontendCPULimit,
-		StagingHost:         prev.StagingHost,
-		ProdHost:            prev.ProdHost,
-		BackendImageRepo:    prev.BackendImageRepo,
-		BackendImageTag:     prev.BackendImageTag,
-		FrontendImageRepo:   prev.FrontendImageRepo,
-		FrontendImageTag:    prev.FrontendImageTag,
+		Backend: registry.ComponentInput{
+			ImageRepository: prev.BackendImageRepo,
+			ImageTag:        prev.BackendImageTag,
+			MemoryLimit:     prev.BackendMemoryLimit,
+			CPULimit:        prev.BackendCPULimit,
+		},
+		Frontend: registry.ComponentInput{
+			ImageRepository: prev.FrontendImageRepo,
+			ImageTag:        prev.FrontendImageTag,
+			MemoryLimit:     prev.FrontendMemoryLimit,
+			CPULimit:        prev.FrontendCPULimit,
+		},
+		Staging: registry.StageInput{Host: prev.StagingHost, Enabled: true},
+		Prod:    registry.StageInput{Host: prev.ProdHost, Enabled: true},
 	}
 
 	if err := input.Validate(h.Reserved); err != nil {
@@ -152,7 +156,7 @@ func (h Claim) handleSubmit(w http.ResponseWriter, r *http.Request, user *middle
 		PRURL:      prResult.URL,
 		Actions:    toViewActions(bootstrapResults),
 		RepoURL:    input.RepoURL,
-		StagingURL: "https://" + input.StagingHost,
+		StagingURL: "https://" + input.Staging.Host,
 	}))
 }
 
@@ -230,12 +234,12 @@ func (h Claim) openPR(
 		user.Login,
 		input.Slug,
 		input.RepoURL,
-		input.StagingHost,
-		input.ProdHost,
-		input.BackendImageRepo, input.BackendImageTag,
-		input.FrontendImageRepo, input.FrontendImageTag,
-		input.BackendMemoryLimit, input.BackendCPULimit,
-		input.FrontendMemoryLimit, input.FrontendCPULimit,
+		input.Staging.Host,
+		input.Prod.Host,
+		input.Backend.ImageRepository, input.Backend.ImageTag,
+		input.Frontend.ImageRepository, input.Frontend.ImageTag,
+		input.Backend.MemoryLimit, input.Backend.CPULimit,
+		input.Frontend.MemoryLimit, input.Frontend.CPULimit,
 	)
 
 	req := ghclient.PRRequest{

@@ -63,18 +63,7 @@ func TestAuthScopeNilSafe(t *testing.T) {
 func TestRenderYAMLOmitsAuthWhenUnset(t *testing.T) {
 	t.Parallel()
 
-	in := ClaimInput{
-		Slug:                "material-order",
-		OwnerTechnical:      "alice",
-		OwnerOrganizational: "bob",
-		RepoURL:             "https://github.com/MeKo-Tech/Material-order",
-		BackendMemoryLimit:  "256Mi",
-		BackendCPULimit:     "250m",
-		FrontendMemoryLimit: "128Mi",
-		FrontendCPULimit:    "100m",
-		StagingHost:         "material-order.staging.example",
-		ProdHost:            "material-order.example",
-	}
+	in := frontendOnlyInput()
 
 	out, err := in.ToApp().RenderYAML()
 	if err != nil {
@@ -99,12 +88,10 @@ func TestRenderYAMLOmitsAuthWhenUnset(t *testing.T) {
 func TestRenderYAMLKeepsAuthScope(t *testing.T) {
 	t.Parallel()
 
-	app, err := ParseYAML([]byte(claimBase + "auth:\n  scope: ewlt\n"))
-	if err != nil {
-		t.Fatalf("ParseYAML: %v", err)
-	}
+	in := frontendOnlyInput()
+	in.AuthScope = "ewlt"
 
-	out, err := app.RenderYAML()
+	out, err := in.ToApp().RenderYAML()
 	if err != nil {
 		t.Fatalf("RenderYAML: %v", err)
 	}
