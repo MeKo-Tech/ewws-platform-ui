@@ -47,8 +47,12 @@ func TestClaimFormFields(t *testing.T) {
 		}
 	}
 
+	// The pre-rollout "enabled: false" caveat is gone since chart 1.10.0 is live.
+	if strings.Contains(html, "Plattform-Rollout") {
+		t.Error("form still shows the obsolete enabled:false rollout hint")
+	}
+
 	for _, want := range []string{
-		"wirkt erst nach dem Plattform-Rollout (meko-app Chart 1.10.0 und ApplicationSet-Unterstützung sind noch nicht live). Bis dahin wird die Stage trotzdem deployt.",
 		"Nur Namen und Vault-Suffixe — niemals Secret-Werte eintragen.",
 		"scripts/tenant-keyvault.sh",
 		"wird ignoriert, wenn die Komponente oben nicht angehakt ist",
