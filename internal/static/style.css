@@ -341,7 +341,6 @@ pre {
 .claim-form > small,
 .claim-form fieldset > small { margin: -0.4rem 0 0.7rem; }
 
-.claim-hint,
 .claim-warning {
   border-left: 3px solid var(--warn);
   background: #fef3c7;

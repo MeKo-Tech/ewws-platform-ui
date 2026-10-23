@@ -118,9 +118,6 @@ templ Claim(page PageProps, props ClaimProps) {
 			@componentFieldset("frontend", "Frontend", "128Mi", "100m", props.frontendOn(), props, props.PreviousValues.Frontend)
 			@stageFieldset("staging", "Staging", "my-app.staging.apps.meko.work", props, props.PreviousValues.Staging)
 			@stageFieldset("prod", "Prod", "my-app.apps.meko.work", props, props.PreviousValues.Prod)
-			<p class="claim-hint">
-				Hinweis: <code>enabled: false</code> wirkt erst nach dem Plattform-Rollout (meko-app Chart 1.10.0 und ApplicationSet-Unterstützung sind noch nicht live). Bis dahin wird die Stage trotzdem deployt.
-			</p>
 			<fieldset>
 				<legend>ewws-auth</legend>
 				<label>
