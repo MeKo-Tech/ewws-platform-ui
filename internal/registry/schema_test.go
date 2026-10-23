@@ -670,6 +670,14 @@ func TestValidateRejects(t *testing.T) {
 			func(c *ClaimInput) { c.RepoURL = "http://github.com/x/y" },
 			"repo.url",
 		},
+		"repo url with space in path": {
+			func(c *ClaimInput) { c.RepoURL = "https://github.com/MeKo-Tech/my app" },
+			"repo.url",
+		},
+		"repo url with space in query": {
+			func(c *ClaimInput) { c.RepoURL = "https://github.com/MeKo-Tech/app?x=a b" },
+			"repo.url",
+		},
 		"bad auth scope": {
 			func(c *ClaimInput) { c.AuthScope = "-x" },
 			"auth.scope",
@@ -700,5 +708,18 @@ func TestValidateRejects(t *testing.T) {
 				t.Errorf("Validate() = %q, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestValidateRepoURLPercentEncoded(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range []string{
+		"https://github.com/MeKo-Tech/my%20app",
+		"https://github.com/MeKo-Tech/app?x=a%20b",
+	} {
+		if err := validateRepoURL(raw); err != nil {
+			t.Errorf("validateRepoURL(%q) = %v, want nil", raw, err)
+		}
 	}
 }

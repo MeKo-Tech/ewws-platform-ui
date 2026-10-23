@@ -465,7 +465,21 @@ func validateRepoURL(raw string) error {
 		return fmt.Errorf("repo.url must be an https:// URL, got %q", raw)
 	}
 
+	// url.Parse tolerates unescaped spaces and other characters that the
+	// registry schema's `format: uri` (RFC 3986) rejects.
+	for _, r := range raw {
+		if !isURIChar(r) {
+			return fmt.Errorf("repo.url %q contains %q, which must be percent-encoded", raw, r)
+		}
+	}
+
 	return nil
+}
+
+// isURIChar reports whether r may appear literally in an RFC 3986 URI
+// (unreserved, reserved or the '%' of a percent-encoding).
+func isURIChar(r rune) bool {
+	return isASCIIAlnum(r) || strings.ContainsRune("-._~:/?#[]@!$&'()*+,;=%", r)
 }
 
 // validateHost checks format hostname with lower-case labels.
