@@ -4,162 +4,298 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
-// ClaimInput is the validated form payload from POST /claim.
+// ClaimInput is the claim form payload from POST /claim.
 //
-// It maps to the schema in `schemas/app.schema.json` of the registry repo.
-// The form in the brief offers `images.<workload>.{repository,tag}` selects
-// — those are kept on the form for ergonomics but folded into the existing
-// `repo` block (we keep the spec, not invent fields the schema rejects).
+// Validate checks it against everything the registry's validate-apps job
+// (schemas/app.schema.json plus scripts/validate-claims.sh) would reject;
+// ToApp turns it into the Claim that is rendered as apps/<slug>.yaml, and
+// TagFiles into the initial tags/<slug>/<stage>.yaml files.
+//
+// Settings of a component that is not enabled (HasBackend / HasFrontend)
+// are kept so the form can show them again, but are neither validated nor
+// rendered.
 type ClaimInput struct {
-	Slug string
-
+	Slug                string
 	OwnerTechnical      string
 	OwnerOrganizational string
-
-	RepoURL string
+	RepoURL             string
 
 	HasBackend  bool
 	HasFrontend bool
 
-	BackendMemoryLimit  string
-	BackendCPULimit     string
-	FrontendMemoryLimit string
-	FrontendCPULimit    string
+	Backend  ComponentInput
+	Frontend ComponentInput
 
-	StagingHost string
-	ProdHost    string
+	Staging StageInput
+	Prod    StageInput
 
-	// Optional metadata captured from the form but stored only in the PR body.
-	BackendImageRepo  string
-	BackendImageTag   string
-	FrontendImageRepo string
-	FrontendImageTag  string
+	AuthScope     string
+	Websocket     bool
+	IngressAuth   string // "", none, github-org, ewws-auth
+	SharedSecrets []string
+	Secrets       []SecretInput
+
+	// CreatedAt (YYYY-MM-DD) is optional; empty means today (UTC).
+	CreatedAt string
 }
 
-// Validate enforces the constraints from the JSON schema we can reasonably
-// check server-side (regex on slug, host format, resource-quantity regex).
-func (c *ClaimInput) Validate(reserved *ReservedSlugs) error {
-	if !SlugRegex.MatchString(c.Slug) {
-		return fmt.Errorf("slug %q does not match ^[a-z][a-z0-9-]{2,30}[a-z0-9]$", c.Slug)
-	}
+// ComponentInput holds the form settings of one component.
+type ComponentInput struct {
+	ImageRepository string
+	ImageTag        string
 
-	if reserved.IsReserved(c.Slug) {
-		return fmt.Errorf("slug %q is reserved", c.Slug)
-	}
+	MemoryLimit string
+	CPULimit    string
 
-	if c.OwnerTechnical == "" || c.OwnerOrganizational == "" {
-		return errors.New("both technical and organizational owners are required")
-	}
+	Port           int
+	Env            []EnvVar
+	EnvFromSecrets []string
 
-	if !strings.HasPrefix(c.RepoURL, "https://") {
-		return fmt.Errorf("repo.url must start with https://, got %q", c.RepoURL)
-	}
-
-	if !memoryRegex.MatchString(c.BackendMemoryLimit) {
-		return fmt.Errorf("backend memory limit %q invalid", c.BackendMemoryLimit)
-	}
-
-	if !memoryRegex.MatchString(c.FrontendMemoryLimit) {
-		return fmt.Errorf("frontend memory limit %q invalid", c.FrontendMemoryLimit)
-	}
-
-	if !cpuRegex.MatchString(c.BackendCPULimit) {
-		return fmt.Errorf("backend cpu limit %q invalid", c.BackendCPULimit)
-	}
-
-	if !cpuRegex.MatchString(c.FrontendCPULimit) {
-		return fmt.Errorf("frontend cpu limit %q invalid", c.FrontendCPULimit)
-	}
-
-	if c.StagingHost == "" || c.ProdHost == "" {
-		return errors.New("staging.host and prod.host are required")
-	}
-
-	return nil
+	LivenessPath  string
+	ReadinessPath string
+	StartupPath   string
 }
 
-// ToApp turns a validated ClaimInput into a registry.App ready to render.
-func (c *ClaimInput) ToApp() *App {
-	return &App{
+// StageInput holds the form settings of one stage.
+type StageInput struct {
+	Host        string
+	Enabled     bool
+	BackendEnv  []EnvVar
+	FrontendEnv []EnvVar
+}
+
+// EnvVar is one environment variable. Secret and Key set make it a
+// reference to one key of a Secret; otherwise Value is used.
+type EnvVar struct {
+	Name   string
+	Value  string
+	Secret string
+	Key    string
+}
+
+// SecretInput is one app-specific secret (ExternalSecret) with its
+// ENV_VAR -> vault suffix mapping.
+type SecretInput struct {
+	Name string
+	Data []SecretKey
+}
+
+// SecretKey maps one environment variable to a vault secret suffix.
+type SecretKey struct {
+	EnvVar      string
+	VaultSuffix string
+}
+
+// Component names as used in the schema.
+const (
+	componentBackend  = "backend"
+	componentFrontend = "frontend"
+	stageStaging      = "staging"
+	stageProd         = "prod"
+)
+
+// ToApp turns a validated ClaimInput into the Claim to render.
+func (c *ClaimInput) ToApp() *Claim {
+	claim := &Claim{
 		APIVersion: "platform.meko.dev/v1",
 		Kind:       "App",
 		Slug:       c.Slug,
-		Owners: Owners{
+		Owners: ClaimOwners{
 			Technical:      c.OwnerTechnical,
 			Organizational: c.OwnerOrganizational,
 		},
-		Repo: Repo{
-			URL:           c.RepoURL,
-			DefaultBranch: "main",
-			HasBackend:    c.HasBackend,
-			HasFrontend:   c.HasFrontend,
+		Repo: ClaimRepo{
+			URL:         c.RepoURL,
+			HasBackend:  c.HasBackend,
+			HasFrontend: c.HasFrontend,
 		},
-		Stages: Stages{
-			Staging: Stage{
-				Host:             c.StagingHost,
-				AutoDeployBranch: "main",
-			},
-			Prod: Stage{
-				Host:                   c.ProdHost,
-				AutoDeployBranch:       "release",
-				RequireManualPromotion: true,
-			},
+		Stages: ClaimStages{
+			Staging: c.stage(&c.Staging, false),
+			Prod:    c.stage(&c.Prod, true),
 		},
-		Resources: Resources{
-			Backend: ResourceBlock{
-				MemoryLimit: c.BackendMemoryLimit,
-				CPULimit:    c.BackendCPULimit,
-				Replicas:    1,
-			},
-			Frontend: ResourceBlock{
-				MemoryLimit: c.FrontendMemoryLimit,
-				CPULimit:    c.FrontendCPULimit,
-				Replicas:    1,
-			},
+		SharedSecrets: c.SharedSecrets,
+		Features: ClaimFeatures{
+			Websocket: c.Websocket,
 		},
-		Features: Features{
-			IngressAuth: "none",
+		CreatedAt: quotedString(c.CreatedAt),
+	}
+
+	if c.CreatedAt == "" {
+		claim.CreatedAt = quotedString(time.Now().UTC().Format(time.DateOnly))
+	}
+
+	if c.IngressAuth != "" && c.IngressAuth != "none" {
+		claim.Features.IngressAuth = c.IngressAuth
+	}
+
+	if c.AuthScope != "" {
+		claim.Auth = &ClaimAuth{Scope: c.AuthScope}
+	}
+
+	comps := &ClaimComponents{}
+
+	if c.HasBackend {
+		claim.Images.Backend = image(&c.Backend)
+		claim.Resources.Backend = resource(&c.Backend)
+		comps.Backend = component(&c.Backend)
+	}
+
+	if c.HasFrontend {
+		claim.Images.Frontend = image(&c.Frontend)
+		claim.Resources.Frontend = resource(&c.Frontend)
+		comps.Frontend = component(&c.Frontend)
+	}
+
+	if comps.Backend != nil || comps.Frontend != nil {
+		claim.Components = comps
+	}
+
+	for _, s := range c.Secrets {
+		data := make(map[string]string, len(s.Data))
+		for _, d := range s.Data {
+			data[d.EnvVar] = d.VaultSuffix
+		}
+
+		claim.Secrets = append(claim.Secrets, ClaimSecret{Name: s.Name, Data: data})
+	}
+
+	return claim
+}
+
+func (c *ClaimInput) stage(in *StageInput, prod bool) ClaimStage {
+	out := ClaimStage{Host: in.Host, RequireManualPromotion: prod}
+
+	if !in.Enabled {
+		disabled := false
+		out.Enabled = &disabled
+	}
+
+	comps := &ClaimStageComps{}
+
+	if c.HasBackend && len(in.BackendEnv) > 0 {
+		comps.Backend = &ClaimStageComponent{Env: envMap(in.BackendEnv)}
+	}
+
+	if c.HasFrontend && len(in.FrontendEnv) > 0 {
+		comps.Frontend = &ClaimStageComponent{Env: envMap(in.FrontendEnv)}
+	}
+
+	if comps.Backend != nil || comps.Frontend != nil {
+		out.Components = comps
+	}
+
+	return out
+}
+
+func image(in *ComponentInput) *ClaimImage {
+	return &ClaimImage{
+		Repository: in.ImageRepository,
+		Tag: ClaimImageTag{
+			Staging: quotedString(in.ImageTag),
+			Prod:    quotedString(in.ImageTag),
 		},
-		CreatedAt: time.Now().UTC().Format("2006-01-02"),
 	}
 }
 
-// RenderYAML marshals an App to indented YAML.
-func (a *App) RenderYAML() ([]byte, error) {
+func resource(in *ComponentInput) *ClaimResource {
+	return &ClaimResource{MemoryLimit: in.MemoryLimit, CPULimit: quotedString(in.CPULimit)}
+}
+
+// component returns components.<c>, or nil when nothing is set.
+func component(in *ComponentInput) *ClaimComponent {
+	out := &ClaimComponent{Port: in.Port}
+
+	if len(in.Env) > 0 {
+		out.Env = envMap(in.Env)
+	}
+
+	for _, name := range in.EnvFromSecrets {
+		out.EnvFrom = append(out.EnvFrom, ClaimEnvFrom{Secret: name})
+	}
+
+	probes := &ClaimProbes{
+		Liveness:  probe(in.LivenessPath),
+		Readiness: probe(in.ReadinessPath),
+		Startup:   probe(in.StartupPath),
+	}
+	if probes.Liveness != nil || probes.Readiness != nil || probes.Startup != nil {
+		out.Probes = probes
+	}
+
+	if out.Port == 0 && out.Env == nil && out.EnvFrom == nil && out.Probes == nil {
+		return nil
+	}
+
+	return out
+}
+
+func probe(path string) *ClaimProbe {
+	if path == "" {
+		return nil
+	}
+
+	return &ClaimProbe{Path: path}
+}
+
+func envMap(vars []EnvVar) map[string]EnvValue {
+	out := make(map[string]EnvValue, len(vars))
+	for _, v := range vars {
+		out[v.Name] = EnvValue{Value: v.Value, Secret: v.Secret, Key: v.Key}
+	}
+
+	return out
+}
+
+// tagFileHeader is the comment on top of every seeded tag file.
+const tagFileHeader = "# Seeded by ewws-platform-ui with the claim's initial tag. The app CI\n" +
+	"# (ewws-workflows write-registry-tag) overwrites it on the next build.\n"
+
+// TagFiles returns the initial tags/<slug>/<stage>.yaml files, keyed by
+// their path in the registry: one per enabled stage, listing the initial
+// image tag of every enabled component.
+func (c *ClaimInput) TagFiles() (map[string][]byte, error) {
+	if !c.HasBackend && !c.HasFrontend {
+		return nil, errors.New("tag files: no component enabled")
+	}
+
 	var buf bytes.Buffer
 
-	buf.WriteString("# Generated by ewws-platform-ui\n")
-	buf.WriteString("# Schema: ../schemas/app.schema.json\n\n")
+	buf.WriteString(tagFileHeader)
+	buf.WriteString("imageTags:\n")
 
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-
-	if err := enc.Encode(a); err != nil {
-		return nil, fmt.Errorf("encode app: %w", err)
+	if c.HasBackend {
+		fmt.Fprintf(&buf, "  backend: %q\n", c.Backend.ImageTag)
 	}
 
-	if err := enc.Close(); err != nil {
-		return nil, fmt.Errorf("close encoder: %w", err)
+	if c.HasFrontend {
+		fmt.Fprintf(&buf, "  frontend: %q\n", c.Frontend.ImageTag)
 	}
 
-	return buf.Bytes(), nil
+	files := map[string][]byte{}
+
+	for _, s := range []struct {
+		name    string
+		enabled bool
+	}{{stageStaging, c.Staging.Enabled}, {stageProd, c.Prod.Enabled}} {
+		if s.enabled {
+			files[fmt.Sprintf("tags/%s/%s.yaml", c.Slug, s.name)] = bytes.Clone(buf.Bytes())
+		}
+	}
+
+	if len(files) == 0 {
+		return nil, errors.New("tag files: no stage enabled")
+	}
+
+	return files, nil
 }
 
-// MemoryOptions / CPUOptions / HostOptions are the dropdown choices the
-// claim form offers. Keep them in code so the form and the validator stay
-// in lockstep.
+// MemoryOptions / CPUOptions are the dropdown choices the claim form
+// offers. Keep them in code so the form and the validator stay in
+// lockstep.
 var (
 	MemoryOptions = []string{"128Mi", "256Mi", "512Mi", "1Gi", "2Gi"}
 	CPUOptions    = []string{"100m", "250m", "500m", "1", "2"}
-)
-
-var (
-	memoryRegex = mustCompileSchema(`^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti|K|M|G|T)?$`)
-	cpuRegex    = mustCompileSchema(`^[0-9]+(\.[0-9]+)?m?$`)
 )

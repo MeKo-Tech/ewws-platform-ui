@@ -1,0 +1,5 @@
+# Seeded by ewws-platform-ui with the claim's initial tag. The app CI
+# (ewws-workflows write-registry-tag) overwrites it on the next build.
+imageTags:
+  backend: "sha-c758f9c"
+  frontend: "1.0.0"

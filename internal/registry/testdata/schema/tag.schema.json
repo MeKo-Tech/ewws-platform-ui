@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/MeKo-Tech/ewws-apps-registry/schemas/tag.schema.json",
+  "title": "Per-stage image tags",
+  "description": "tags/<slug>/<stage>.yaml. Used verbatim as a Helm values file of the meko-app chart, so the top-level key is the chart value `imageTags`. Written by the app's CI; when the file is missing the chart falls back to images.<component>.tag.<stage> in the claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["imageTags"],
+  "properties": {
+    "imageTags": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "backend": { "$ref": "app.schema.json#/definitions/imageTagValue" },
+        "frontend": { "$ref": "app.schema.json#/definitions/imageTagValue" }
+      }
+    }
+  }
+}
