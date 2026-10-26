@@ -40,10 +40,18 @@ func TestClaimFormFields(t *testing.T) {
 		"frontend_image_repo", "frontend_image_tag", "frontend_port", "frontend_env", "frontend_env_from",
 		"staging_host", "staging_enabled", "staging_backend_env", "staging_frontend_env",
 		"prod_host", "prod_enabled", "prod_backend_env", "prod_frontend_env",
-		"auth_scope", "websocket", "ingress_auth", "secrets", "shared_secrets",
+		"auth_scope", "websocket", "ingress_auth", "shared_secrets",
 	} {
 		if !strings.Contains(html, `name="`+name+`"`) {
 			t.Errorf("form lacks field %q", name)
+		}
+	}
+
+	// ExternalSecrets (claim `secrets`, Key Vault meko-apps) were removed
+	// from the platform; the form must not offer them any more.
+	for _, gone := range []string{`name="secrets"`, "tenant-keyvault", "Vault-Suffix"} {
+		if strings.Contains(html, gone) {
+			t.Errorf("form still contains %q", gone)
 		}
 	}
 
@@ -53,8 +61,7 @@ func TestClaimFormFields(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"Nur Namen und Vault-Suffixe — niemals Secret-Werte eintragen.",
-		"scripts/tenant-keyvault.sh",
+		"Nur Secret-Namen — niemals Secret-Werte eintragen.",
 		"wird ignoriert, wenn die Komponente oben nicht angehakt ist",
 		"onboarding.md#8-login-über-ewws-auth",
 		"onboarding.md#7-secrets",
@@ -74,15 +81,15 @@ func TestClaimFormFields(t *testing.T) {
 
 func TestClaimFormKeepsValues(t *testing.T) {
 	html := renderClaimForm(t, views.ClaimFormState{
-		Submitted: true,
-		Slug:      "my-app",
-		Staging:   views.ClaimStageFormState{Enabled: true, BackendEnv: "A=1\nB=secret:s/k"},
-		Prod:      views.ClaimStageFormState{Enabled: false},
-		Secrets:   "my-app-db: DB=db-password",
-		Backend:   views.ClaimComponentFormState{Port: "abc"},
+		Submitted:     true,
+		Slug:          "my-app",
+		Staging:       views.ClaimStageFormState{Enabled: true, BackendEnv: "A=1\nB=secret:s/k"},
+		Prod:          views.ClaimStageFormState{Enabled: false},
+		SharedSecrets: "ipoffice-readonly",
+		Backend:       views.ClaimComponentFormState{Port: "abc"},
 	})
 
-	for _, want := range []string{"A=1\nB=secret:s/k</textarea>", "my-app-db: DB=db-password</textarea>", `value="abc"`} {
+	for _, want := range []string{"A=1\nB=secret:s/k</textarea>", `value="ipoffice-readonly"`, `value="abc"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("re-rendered form lacks %q", want)
 		}
@@ -197,8 +204,7 @@ func TestParseClaimFormProdDisabled(t *testing.T) {
 
 func TestParseClaimFormEnvWithSecretRef(t *testing.T) {
 	form := baseClaimForm()
-	form.Set("secrets", "my-app-db: DB_PASSWORD=db-password\n")
-	form.Set("shared_secrets", "ipoffice-readonly")
+	form.Set("shared_secrets", "ipoffice-readonly, my-app-db")
 	form.Set("backend_env", "# comment\nLOG_LEVEL=info\nDB_PASSWORD=secret:my-app-db/DB_PASSWORD\n")
 	form.Set("backend_env_from", "ipoffice-readonly")
 	form.Set("backend_port", "9090")
@@ -223,8 +229,8 @@ func TestParseClaimFormEnvWithSecretRef(t *testing.T) {
 		t.Errorf("input = %+v", in)
 	}
 
-	if len(in.Secrets) != 1 || in.Secrets[0].Name != "my-app-db" ||
-		len(in.SharedSecrets) != 1 || len(in.Backend.EnvFromSecrets) != 1 ||
+	if len(in.SharedSecrets) != 2 || in.SharedSecrets[1] != "my-app-db" ||
+		len(in.Backend.EnvFromSecrets) != 1 ||
 		len(in.Staging.BackendEnv) != 1 {
 		t.Errorf("secrets/env_from/stage env = %+v", in)
 	}
@@ -241,7 +247,6 @@ func TestParseClaimFormErrorsKeepValues(t *testing.T) {
 		{"bad port", "backend_port", "80a", "backend port"},
 		{"bad env line", "frontend_env", "NOVALUE", "frontend env"},
 		{"bad stage env", "prod_backend_env", "X=secret:nokey", "prod backend env"},
-		{"bad secrets", "secrets", "just-a-name", "secrets"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			form := baseClaimForm()

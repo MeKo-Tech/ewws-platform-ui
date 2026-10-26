@@ -59,54 +59,6 @@ func TestParseEnvLinesErrors(t *testing.T) {
 	}
 }
 
-func TestParseSecretLines(t *testing.T) {
-	t.Parallel()
-
-	got, err := ParseSecretLines(`
-# secrets
-app-db: DB_PASSWORD=db-password, DB_USER = db-user
-app-api:API_TOKEN=api-token,
-`)
-	if err != nil {
-		t.Fatalf("ParseSecretLines: %v", err)
-	}
-
-	want := []SecretInput{
-		{Name: "app-db", Data: []SecretKey{
-			{EnvVar: "DB_PASSWORD", VaultSuffix: "db-password"},
-			{EnvVar: "DB_USER", VaultSuffix: "db-user"},
-		}},
-		{Name: "app-api", Data: []SecretKey{{EnvVar: "API_TOKEN", VaultSuffix: "api-token"}}},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ParseSecretLines = %+v, want %+v", got, want)
-	}
-
-	back, err := ParseSecretLines(FormatSecretLines(got))
-	if err != nil || !reflect.DeepEqual(back, want) {
-		t.Errorf("round trip = %+v, %v", back, err)
-	}
-}
-
-func TestParseSecretLinesErrors(t *testing.T) {
-	t.Parallel()
-
-	for in, want := range map[string]string{
-		"app-db":                   "line 1",
-		": A=b":                    "line 1",
-		"app-db:":                  "needs at least one",
-		"app-db: A":                "is not ENV_VAR=vault-suffix",
-		"app-db: A=":               "is not ENV_VAR=vault-suffix",
-		"app-db: A=a, A=b":         "A is listed twice",
-		"app-db: A=a\napp-db: B=b": "line 2: secret app-db is listed twice",
-	} {
-		_, err := ParseSecretLines(in)
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("ParseSecretLines(%q) error = %v, want it to contain %q", in, err, want)
-		}
-	}
-}
-
 func TestParseNameList(t *testing.T) {
 	t.Parallel()
 

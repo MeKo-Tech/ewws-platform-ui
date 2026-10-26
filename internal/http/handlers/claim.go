@@ -126,7 +126,6 @@ func parseClaimForm(
 		AuthScope:     val("auth_scope"),
 		Websocket:     checked("websocket"),
 		IngressAuth:   val("ingress_auth"),
-		Secrets:       raw("secrets"),
 		SharedSecrets: val("shared_secrets"),
 	}
 
@@ -171,10 +170,6 @@ func parseClaimForm(
 
 	if in.Prod, err = stageInput("prod", st.Prod, st.HasBackend, st.HasFrontend); err != nil {
 		return nil, st, err
-	}
-
-	if in.Secrets, err = registry.ParseSecretLines(st.Secrets); err != nil {
-		return nil, st, fmt.Errorf("secrets: %w", err)
 	}
 
 	return in, st, nil

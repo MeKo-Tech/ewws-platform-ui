@@ -32,7 +32,6 @@ type ClaimFormState struct {
 	AuthScope     string
 	Websocket     bool
 	IngressAuth   string
-	Secrets       string
 	SharedSecrets string
 }
 
@@ -149,19 +148,11 @@ templ Claim(page PageProps, props ClaimProps) {
 			<fieldset>
 				<legend>Secrets</legend>
 				<p class="claim-warning">
-					<strong>Nur Namen und Vault-Suffixe — niemals Secret-Werte eintragen.</strong>
-					Die Werte legt ein Plattform-Admin mit <code>scripts/tenant-keyvault.sh</code> im Key Vault an.
+					<strong>Nur Secret-Namen — niemals Secret-Werte eintragen.</strong>
+					App-eigene Secrets kommen als SealedSecrets (<code>sealed_secrets</code> im Claim); das Formular setzt sie nicht, ergänze sie im PR.
 					Siehe <a href={ templ.SafeURL(secretsGuideURL) }>Secrets-Leitfaden</a> und
 					<a href={ templ.SafeURL(onboardingSecrets) }>Onboarding: Secrets</a>.
 				</p>
-				<label>
-					App-Secrets (optional)
-					<textarea name="secrets" rows="3" placeholder="my-app-db: DATABASE_URL=db-url, DB_PASSWORD=db-password">{ props.PreviousValues.Secrets }</textarea>
-					<small>
-						Ein Secret pro Zeile: <code>&lt;secret-name&gt;: ENV_VAR=vault-suffix, ENV2=suffix2</code>. Zeilen mit <code>#</code> werden ignoriert.
-						Gelesen wird das Vault-Secret <code>&lt;slug&gt;-&lt;stage&gt;-&lt;vault-suffix&gt;</code>; das Präfix setzt das Chart.
-					</small>
-				</label>
 				<label>
 					Shared secrets (optional)
 					<input type="text" name="shared_secrets" placeholder="ipoffice-readonly" value={ props.PreviousValues.SharedSecrets }/>
@@ -236,7 +227,7 @@ templ componentFieldset(name, title, defaultMemory, defaultCPU string, enabled b
 		<label>
 			env_from secrets (optional)
 			<input type="text" name={ name + "_env_from" } placeholder="my-app-db, ipoffice-readonly" value={ st.EnvFrom }/>
-			<small>Secret-Namen, durch Komma getrennt; alle Keys werden als Env-Variablen geladen. Jeder Name muss unter Secrets oder Shared secrets stehen.</small>
+			<small>Secret-Namen, durch Komma getrennt; alle Keys werden als Env-Variablen geladen. Jeder Name muss unter Shared secrets stehen.</small>
 		</label>
 	</fieldset>
 }
