@@ -71,6 +71,16 @@ Generate `SESSION_SECRET` like this:
 openssl rand -base64 32
 ```
 
+## Operations
+
+Reviewing and approving a claim PR is more than merging it: the app also
+needs its own ewws-auth client, access to the tagger key
+(`EWWS_REGISTRY_TAGGER_PRIVATE_KEY`), and an entry in the `vibe-app-repos`
+ruleset. The admin runbook (German) covers every step, including withdrawing
+an app:
+[Neue Vibe-App freischalten](https://github.com/MeKo-Tech/ewws-wiki/blob/main/02_Softwareentwicklung/02_Tech/08_App-Plattform/neue_vibe_app_freischalten.md)
+(ewws-wiki).
+
 ## Local dev
 
 ```sh
