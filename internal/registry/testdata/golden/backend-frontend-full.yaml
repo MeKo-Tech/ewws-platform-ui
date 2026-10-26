@@ -72,14 +72,8 @@ auth:
   scope: ewlt
 shared_secrets:
   - smtp-relay
-secrets:
-  - name: app-db
-    data:
-      DB_PASSWORD: db-password
-      DB_USER: db-user
-  - name: app-api
-    data:
-      API_TOKEN: api-token
+  - app-db
+  - app-api
 features:
   websocket: true
   ingress_auth: ewws-auth

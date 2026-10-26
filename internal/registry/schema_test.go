@@ -1,8 +1,8 @@
 package registry
 
 // The schemas under testdata/schema are vendored from MeKo-Tech/ewws-apps-registry
-// at commit 3c89118f1bb14152413bdbc3f010b89084c5e4b5 (schemas last changed in
-// b8467f548fd8f12d82bc05ba84e58ba295eb470f, registry PR #41). Refresh them with:
+// at commit 8eb676bfa026c7b684ec1f16475e57bedc8e6c80 (schemas last changed in
+// 471e49a91c68e6cc8acc56345f78f33df6bb0166, registry PR #145). Refresh them with:
 //
 //	sha=<commit>
 //	gh api "repos/MeKo-Tech/ewws-apps-registry/contents/schemas/app.schema.json?ref=$sha" \
@@ -161,14 +161,7 @@ func fullInput() ClaimInput {
 	in.AuthScope = "ewlt"
 	in.Websocket = true
 	in.IngressAuth = "ewws-auth"
-	in.SharedSecrets = []string{"smtp-relay"}
-	in.Secrets = []SecretInput{
-		{Name: "app-db", Data: []SecretKey{
-			{EnvVar: "DB_PASSWORD", VaultSuffix: "db-password"},
-			{EnvVar: "DB_USER", VaultSuffix: "db-user"},
-		}},
-		{Name: "app-api", Data: []SecretKey{{EnvVar: "API_TOKEN", VaultSuffix: "api-token"}}},
-	}
+	in.SharedSecrets = []string{"smtp-relay", "app-db", "app-api"}
 	in.Backend.Port = 8080
 	in.Backend.Env = []EnvVar{
 		{Name: "PORT", Value: "8080"},
@@ -197,10 +190,7 @@ func claimCases() []struct {
 	withAuth.AuthScope = "material.order"
 
 	withSecrets := bothInput()
-	withSecrets.SharedSecrets = []string{"smtp-relay", "ldap-bind"}
-	withSecrets.Secrets = []SecretInput{
-		{Name: "app-db", Data: []SecretKey{{EnvVar: "PASSWORD", VaultSuffix: "1"}}},
-	}
+	withSecrets.SharedSecrets = []string{"smtp-relay", "ldap-bind", "app-db"}
 	withSecrets.Backend.Env = []EnvVar{
 		{Name: "LDAP_PASSWORD", Secret: "ldap-bind", Key: "bind.password"},
 		{Name: "DB", Secret: "app-db", Key: "PASSWORD"},
@@ -214,9 +204,7 @@ func claimCases() []struct {
 	stagingDisabled.Staging.Enabled = false
 
 	stageEnv := bothInput()
-	stageEnv.Secrets = []SecretInput{
-		{Name: "app-db", Data: []SecretKey{{EnvVar: "PASSWORD", VaultSuffix: "db-password"}}},
-	}
+	stageEnv.SharedSecrets = []string{"app-db"}
 	stageEnv.Staging.BackendEnv = []EnvVar{
 		{Name: "MODE", Value: "staging"},
 		{Name: "DB", Secret: "app-db", Key: "PASSWORD"},
@@ -346,15 +334,9 @@ func assertScriptRules(t *testing.T, in *ClaimInput, doc map[string]any, out []b
 		known[s] = true
 	}
 
-	if secrets, ok := doc["secrets"].([]any); ok {
-		for _, s := range secrets {
-			known[s.(map[string]any)["name"].(string)] = true
-		}
-	}
-
 	for _, ref := range secretRefs(doc) {
 		if !known[ref] {
-			t.Errorf("env refers to secret %q that is neither shared nor in secrets", ref)
+			t.Errorf("env refers to secret %q that is not in shared_secrets", ref)
 		}
 	}
 
@@ -487,6 +469,9 @@ func TestSchemaHarnessRejects(t *testing.T) {
 		"deprecated key typo": func(s string) string {
 			return strings.Replace(s, "slug:", "unknown: x\nslug:", 1)
 		},
+		"removed external secrets": func(s string) string {
+			return strings.Replace(s, "slug:", "secrets:\n  - name: app-db\n    data:\n      A: a\nslug:", 1)
+		},
 	} {
 		inst, _ := yamlToJSON(t, []byte(mutate(string(good))))
 		if err := appSchema.Validate(inst); err == nil {
@@ -590,7 +575,7 @@ func TestValidateRejects(t *testing.T) {
 			func(c *ClaimInput) {
 				c.Frontend.Env = []EnvVar{{Name: "X", Secret: "nope", Key: "k"}}
 			},
-			"components.frontend.env.X: secret \"nope\" is neither",
+			"components.frontend.env.X: secret \"nope\" is not in shared_secrets",
 		},
 		"unknown stage secret ref": {
 			func(c *ClaimInput) {
@@ -618,29 +603,6 @@ func TestValidateRejects(t *testing.T) {
 				c.Frontend.Env = []EnvVar{{Name: "A", Value: "x"}, {Name: "A", Value: "y"}}
 			},
 			"A is set twice",
-		},
-		"azure-kv-sp": {
-			func(c *ClaimInput) {
-				c.Secrets = []SecretInput{{Name: "azure-kv-sp", Data: []SecretKey{{"A", "a"}}}}
-			},
-			"reserved for the Key Vault credentials",
-		},
-		"secret also shared": {
-			func(c *ClaimInput) {
-				c.SharedSecrets = []string{"smtp-relay"}
-				c.Secrets = []SecretInput{{Name: "smtp-relay", Data: []SecretKey{{"A", "a"}}}}
-			},
-			"also listed in shared_secrets",
-		},
-		"secret without data": {
-			func(c *ClaimInput) { c.Secrets = []SecretInput{{Name: "app-db"}} },
-			"secrets.app-db.data: needs 1 to 50 entries",
-		},
-		"bad vault suffix": {
-			func(c *ClaimInput) {
-				c.Secrets = []SecretInput{{Name: "app-db", Data: []SecretKey{{"A", "Bad"}}}}
-			},
-			"vault suffix \"Bad\"",
 		},
 		"cpu over cap": {
 			func(c *ClaimInput) { c.Frontend.CPULimit = "4001m" },

@@ -24,8 +24,6 @@ var (
 	secretKeyRegex    = mustCompileSchema(`^[-._a-zA-Z0-9]+$`)
 	authScopeRegex    = mustCompileSchema(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 	sharedSecretRegex = mustCompileSchema(`^[a-z][a-z0-9-]{1,30}[a-z0-9]$`)
-	secretNameRegex   = mustCompileSchema(`^[a-z][a-z0-9-]{1,40}[a-z0-9]$`)
-	vaultSuffixRegex  = mustCompileSchema(`^[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?$`)
 )
 
 const (
@@ -34,18 +32,12 @@ const (
 	maxEnvValueLen  = 4096
 	maxSecretKeyLen = 253
 	maxEnvFrom      = 10
-	maxSecrets      = 20
-	maxSecretData   = 50
 	maxProbePathLen = 200
 	maxAuthScopeLen = 128
 	maxMemoryBytes  = 4 * 1024 * 1024 * 1024 // 4Gi
 	maxCPUCores     = 4
 	minPort         = 1024
 	maxPort         = 65535
-
-	// reservedSecretName holds the Key Vault service principal; an
-	// ExternalSecret of that name would overwrite it.
-	reservedSecretName = "azure-kv-sp"
 )
 
 // Validate enforces everything the registry's validate-apps job would
@@ -165,8 +157,8 @@ func (c *ClaimInput) enabledComponents() []namedComponent {
 	return out
 }
 
-// validateSecrets checks shared_secrets and secrets and returns the set of
-// secret names env references and env_from may use.
+// validateSecrets checks shared_secrets and returns the set of secret
+// names env references and env_from may use.
 func (c *ClaimInput) validateSecrets() (map[string]bool, error) {
 	known := map[string]bool{}
 
@@ -184,75 +176,7 @@ func (c *ClaimInput) validateSecrets() (map[string]bool, error) {
 		known[name] = true
 	}
 
-	if len(c.Secrets) > maxSecrets {
-		return nil, fmt.Errorf("secrets: at most %d entries, got %d", maxSecrets, len(c.Secrets))
-	}
-
-	own := map[string]bool{}
-
-	for _, s := range c.Secrets {
-		if err := s.validate(); err != nil {
-			return nil, err
-		}
-
-		if own[s.Name] {
-			return nil, fmt.Errorf("secrets: name %q is used twice", s.Name)
-		}
-
-		if known[s.Name] {
-			return nil, fmt.Errorf("secrets: name %q is also listed in shared_secrets", s.Name)
-		}
-
-		own[s.Name] = true
-	}
-
-	for name := range own {
-		known[name] = true
-	}
-
 	return known, nil
-}
-
-func (s *SecretInput) validate() error {
-	if !secretNameRegex.MatchString(s.Name) {
-		return fmt.Errorf("secrets: name %q must match ^[a-z][a-z0-9-]{1,40}[a-z0-9]$", s.Name)
-	}
-
-	if s.Name == reservedSecretName {
-		return fmt.Errorf(
-			"secrets: name %q is reserved for the Key Vault credentials", reservedSecretName,
-		)
-	}
-
-	if len(s.Data) == 0 || len(s.Data) > maxSecretData {
-		return fmt.Errorf(
-			"secrets.%s.data: needs 1 to %d entries, got %d", s.Name, maxSecretData, len(s.Data),
-		)
-	}
-
-	seen := map[string]bool{}
-
-	for _, d := range s.Data {
-		field := "secrets." + s.Name + ".data"
-		if err := validateEnvName(field, d.EnvVar); err != nil {
-			return err
-		}
-
-		if seen[d.EnvVar] {
-			return fmt.Errorf("%s: %s is listed twice", field, d.EnvVar)
-		}
-
-		seen[d.EnvVar] = true
-
-		if !vaultSuffixRegex.MatchString(d.VaultSuffix) {
-			return fmt.Errorf(
-				"%s.%s: vault suffix %q must match ^[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?$",
-				field, d.EnvVar, d.VaultSuffix,
-			)
-		}
-	}
-
-	return nil
 }
 
 func (in *ComponentInput) validate(name string, known map[string]bool) error {
@@ -325,7 +249,7 @@ func (in *ComponentInput) validate(name string, known map[string]bool) error {
 		seen[s] = true
 
 		if !known[s] {
-			return fmt.Errorf("%s: secret %q is neither in shared_secrets nor in secrets", field, s)
+			return fmt.Errorf("%s: secret %q is not in shared_secrets", field, s)
 		}
 	}
 
@@ -384,7 +308,7 @@ func validateEnv(field string, vars []EnvVar, known map[string]bool) error {
 
 		if !known[v.Secret] {
 			return fmt.Errorf(
-				"%s.%s: secret %q is neither in shared_secrets nor in secrets",
+				"%s.%s: secret %q is not in shared_secrets",
 				field,
 				v.Name,
 				v.Secret,

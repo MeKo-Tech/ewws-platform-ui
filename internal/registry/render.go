@@ -36,7 +36,6 @@ type ClaimInput struct {
 	Websocket     bool
 	IngressAuth   string // "", none, github-org, ewws-auth
 	SharedSecrets []string
-	Secrets       []SecretInput
 
 	// CreatedAt (YYYY-MM-DD) is optional; empty means today (UTC).
 	CreatedAt string
@@ -74,19 +73,6 @@ type EnvVar struct {
 	Value  string
 	Secret string
 	Key    string
-}
-
-// SecretInput is one app-specific secret (ExternalSecret) with its
-// ENV_VAR -> vault suffix mapping.
-type SecretInput struct {
-	Name string
-	Data []SecretKey
-}
-
-// SecretKey maps one environment variable to a vault secret suffix.
-type SecretKey struct {
-	EnvVar      string
-	VaultSuffix string
 }
 
 // Component names as used in the schema.
@@ -151,15 +137,6 @@ func (c *ClaimInput) ToApp() *Claim {
 
 	if comps.Backend != nil || comps.Frontend != nil {
 		claim.Components = comps
-	}
-
-	for _, s := range c.Secrets {
-		data := make(map[string]string, len(s.Data))
-		for _, d := range s.Data {
-			data[d.EnvVar] = d.VaultSuffix
-		}
-
-		claim.Secrets = append(claim.Secrets, ClaimSecret{Name: s.Name, Data: data})
 	}
 
 	return claim

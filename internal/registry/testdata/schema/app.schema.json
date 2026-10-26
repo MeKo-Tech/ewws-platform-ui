@@ -235,12 +235,12 @@
       "description": "Extra Deployments without Ingress (workers, classifiers; a namespace-internal Service only with `service`), running the image of an enabled component. Names unique (enforced by scripts/validate-claims.sh).",
       "items": { "$ref": "#/definitions/extraWorkload" }
     },
-    "secrets": {
+    "sealed_secrets": {
       "type": "array",
       "default": [],
       "maxItems": 20,
-      "description": "App-specific secrets from Azure Key Vault meko-apps. Each entry renders one ExternalSecret creating a Secret named `name`; reference it via components.<c>.env_from. Names are unique and must not repeat a shared_secrets entry (enforced by scripts/validate-claims.sh).",
-      "items": { "$ref": "#/definitions/externalSecret" }
+      "description": "Secret names delivered as SealedSecrets from `secrets/<slug>/<stage>/<name>.yaml` in this registry (sealed in the app repo, copied here by write-registry-secrets.yml). Reference them via components.<c>.env_from or env {secret, key}. Names are unique and must not repeat a shared_secrets entry (enforced by scripts/validate-claims.sh).",
+      "items": { "$ref": "#/definitions/sealedSecret" }
     },
     "quota": {
       "type": "object",
@@ -538,7 +538,7 @@
     },
     "envMap": {
       "type": "object",
-      "description": "Environment variables NAME -> value, max 50. A value is a string (quote numbers and booleans) or {secret, key}: one key of a Secret (valueFrom.secretKeyRef); the secret must be in shared_secrets or secrets[].name (enforced by scripts/validate-claims.sh).",
+      "description": "Environment variables NAME -> value, max 50. A value is a string (quote numbers and booleans) or {secret, key}: one key of a Secret (valueFrom.secretKeyRef); the secret must be in shared_secrets or sealed_secrets[].name (enforced by scripts/validate-claims.sh).",
       "maxProperties": 50,
       "propertyNames": { "$ref": "#/definitions/envName" },
       "additionalProperties": {
@@ -563,7 +563,7 @@
     },
     "envFromList": {
       "type": "array",
-      "description": "Secrets or ConfigMaps in the namespace whose keys become environment variables. A secret that is an external `secrets` entry not active in the current stage is dropped by the chart.",
+      "description": "Secrets or ConfigMaps in the namespace whose keys become environment variables. A secret that is a `sealed_secrets` entry not active in the current stage is dropped by the chart.",
       "maxItems": 10,
       "uniqueItems": true,
       "items": {
@@ -773,17 +773,16 @@
         }
       }
     },
-    "externalSecret": {
+    "sealedSecret": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "name",
-        "data"
+        "name"
       ],
       "properties": {
         "name": {
           "type": "string",
-          "description": "Name of the Kubernetes Secret the ExternalSecret creates. Unique, and not one of shared_secrets.",
+          "description": "Name of the Kubernetes Secret the SealedSecret creates; also the file name secrets/<slug>/<stage>/<name>.yaml.",
           "pattern": "^[a-z][a-z0-9-]{1,40}[a-z0-9]$"
         },
         "stages": {
@@ -802,25 +801,6 @@
             "staging",
             "prod"
           ]
-        },
-        "refresh_interval": {
-          "type": "string",
-          "description": "How often external-secrets re-reads the vault (Go duration, e.g. 1h, 30m).",
-          "pattern": "^([0-9]+(s|m|h))+$",
-          "default": "1h"
-        },
-        "data": {
-          "type": "object",
-          "description": "ENV_KEY -> vault secret suffix. The vault secret read is `<slug>-<stage>-<suffix>` in Azure Key Vault meko-apps; the prefix is added by the chart.",
-          "minProperties": 1,
-          "maxProperties": 50,
-          "propertyNames": {
-            "$ref": "#/definitions/envName"
-          },
-          "additionalProperties": {
-            "type": "string",
-            "pattern": "^[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?$"
-          }
         }
       }
     }

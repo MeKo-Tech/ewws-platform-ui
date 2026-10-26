@@ -25,7 +25,6 @@ type Claim struct {
 	Components    *ClaimComponents `yaml:"components,omitempty"`
 	Auth          *ClaimAuth       `yaml:"auth,omitempty"`
 	SharedSecrets []string         `yaml:"shared_secrets,omitempty"`
-	Secrets       []ClaimSecret    `yaml:"secrets,omitempty"`
 	Features      ClaimFeatures    `yaml:"features"`
 	CreatedAt     quotedString     `yaml:"created_at"`
 }
@@ -134,12 +133,6 @@ type ClaimProbe struct {
 // ClaimAuth is the optional auth block.
 type ClaimAuth struct {
 	Scope string `yaml:"scope"`
-}
-
-// ClaimSecret is one secrets[] entry (an ExternalSecret).
-type ClaimSecret struct {
-	Name string            `yaml:"name"`
-	Data map[string]string `yaml:"data"`
 }
 
 // ClaimFeatures is the required features block; `{}` when nothing is set.
