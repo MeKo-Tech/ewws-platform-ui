@@ -172,14 +172,16 @@ templ UsageDetailPage(props PageProps, d UsageDetail) {
 				<dd class="mono">{ usageClientLabel(d.ClientID) }</dd>
 				<dt>Issuer</dt>
 				<dd>{ usageIssuerLabel(d.Issuer) }</dd>
-				<dt>Registriert</dt>
-				<dd>
-					if d.Registered {
-						<span class="badge badge--ok">registriert</span>
-					} else {
-						<span class="badge badge--warn">nicht registriert</span>
-					}
-				</dd>
+				if d.State == UsageOK {
+					<dt>Registriert</dt>
+					<dd>
+						if d.Registered {
+							<span class="badge badge--ok">registriert</span>
+						} else {
+							<span class="badge badge--warn">nicht registriert</span>
+						}
+					</dd>
+				}
 			</dl>
 		</section>
 		if d.State == UsageOK || d.State == UsageInvalid {

@@ -183,6 +183,24 @@ func TestUsageDetailStates(t *testing.T) {
 	if !strings.Contains(empty, "Keine Logins im Zeitraum.") || !strings.Contains(empty, "alle") {
 		t.Error("detail empty: want empty state and issuer \"alle\"")
 	}
+
+	if !strings.Contains(empty, "nicht registriert") {
+		t.Error("detail ok, unregistered: want \"nicht registriert\"")
+	}
+}
+
+// The registration status is only known after a successful lookup; an
+// error or invalid range must not present the zero value as "nicht
+// registriert".
+func TestUsageDetailRegisteredOnlyWhenOK(t *testing.T) {
+	for _, st := range []UsageState{UsageNotConfigured, UsageForbidden, UsageInvalid, UsageError} {
+		html := renderComponent(t, UsageDetailPage(adminProps, UsageDetail{
+			State: st, Message: "x", FormAction: "/usage/x",
+		}))
+		if strings.Contains(html, "registriert") {
+			t.Errorf("state %v: registration status rendered without a lookup", st)
+		}
+	}
 }
 
 func TestNavUsageLinkAdminOnly(t *testing.T) {
