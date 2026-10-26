@@ -1,0 +1,247 @@
+package views
+
+import "strconv"
+
+// Usage renders GET /usage: logins per app from ewws-auth (admin only).
+templ Usage(props PageProps, o UsageOverview) {
+	@Layout(props) {
+		<section class="hero">
+			<h1>Nutzung</h1>
+			<p>
+				Logins pro App aus ewws-auth — Fenster 1, 7 und 30 Tage
+				if o.Today != "" {
+					bis { o.Today } (UTC).
+				} else {
+					bis heute (UTC).
+				}
+			</p>
+		</section>
+		@usageStateBox(o.State, o.Message)
+		if o.State == UsageOK {
+			@usageOverviewTable(o.Rows)
+			if len(o.Silent) > 0 {
+				@usageSilentSection(o.Silent)
+			}
+			if len(o.NoLogin) > 0 {
+				@usageNoLoginSection(o.NoLogin)
+			}
+		}
+	}
+}
+
+// usageStateBox renders the notice for every state but UsageOK.
+templ usageStateBox(state UsageState, message string) {
+	switch state {
+		case UsageNotConfigured:
+			<div class="alert alert--neutral" role="status">
+				<strong>ewws-auth nicht konfiguriert.</strong>
+				Es fehlen <code>EWWS_AUTH_URL</code>, <code>EWWS_AUTH_MACHINE_CLIENT_ID</code>
+				oder <code>EWWS_AUTH_MACHINE_CLIENT_SECRET</code>.
+			</div>
+		case UsageForbidden:
+			<div class="alert alert--error" role="alert">
+				<strong>Recht auth:activity:r fehlt.</strong>
+				Der Maschinen-Account der Platform-UI braucht in ewws-auth die Freigabe
+				<code>auth:activity:r</code>, um Login-Aktivität lesen zu dürfen.
+			</div>
+		case UsageInvalid:
+			<div class="alert alert--error" role="alert">
+				<strong>Ungültige Anfrage:</strong> { message }
+			</div>
+		case UsageError:
+			<div class="alert alert--error" role="alert">
+				<strong>ewws-auth nicht erreichbar:</strong> { message }
+			</div>
+	}
+}
+
+templ usageOverviewTable(rows []UsageRow) {
+	<table class="tenants-table usage-table">
+		<thead>
+			<tr>
+				<th rowspan="2">App</th>
+				<th rowspan="2">ewws-auth Name</th>
+				<th rowspan="2">client_id</th>
+				<th rowspan="2">Issuer</th>
+				<th colspan="2" class="usage-table__group">1 Tag</th>
+				<th colspan="2" class="usage-table__group">7 Tage</th>
+				<th colspan="2" class="usage-table__group">30 Tage</th>
+			</tr>
+			<tr>
+				<th class="num">Nutzer</th>
+				<th class="num">Logins</th>
+				<th class="num">Nutzer</th>
+				<th class="num">Logins</th>
+				<th class="num">Nutzer</th>
+				<th class="num">Logins</th>
+			</tr>
+		</thead>
+		<tbody>
+			if len(rows) == 0 {
+				<tr><td colspan="10" class="empty">Keine Aktivität in den letzten 30 Tagen.</td></tr>
+			}
+			for _, r := range rows {
+				<tr class="tenant-row">
+					<td>
+						if r.AppSlug != "" {
+							<a href={ templ.URL("/app/" + r.AppSlug) }>{ r.AppSlug }</a>
+							if len(r.AppStages) > 0 {
+								<small class="muted">{ usageStages(r.AppStages) }</small>
+							}
+						} else if r.Name != "" {
+							{ r.Name }
+						} else {
+							<span class="muted">—</span>
+						}
+					</td>
+					<td>
+						{ r.Name }
+						if !r.Registered {
+							<span class="badge badge--warn" title="client_id ist in ewws-auth nicht registriert">nicht registriert</span>
+						}
+					</td>
+					<td><a class="mono" href={ templ.URL(r.DetailURL) }>{ usageClientLabel(r.ClientID) }</a></td>
+					<td>{ r.Issuer }</td>
+					@usageWindowCells(r.Last1d)
+					@usageWindowCells(r.Last7d)
+					@usageWindowCells(r.Last30d)
+				</tr>
+			}
+		</tbody>
+	</table>
+}
+
+templ usageWindowCells(w UsageWindow) {
+	<td class="num">{ strconv.Itoa(w.Users) }</td>
+	<td class="num">{ strconv.Itoa(w.Logins) }</td>
+}
+
+templ usageSilentSection(silent []UsageSilent) {
+	<section class="detail-section">
+		<h2>Ohne Aktivität</h2>
+		<p class="muted">client_ids aus der Registry, für die ewws-auth in den letzten 30 Tagen keinen Login kennt.</p>
+		<table class="tenants-table usage-table">
+			<thead>
+				<tr>
+					<th>App</th>
+					<th>Stage</th>
+					<th>client_id</th>
+				</tr>
+			</thead>
+			<tbody>
+				for _, s := range silent {
+					<tr>
+						<td><a href={ templ.URL("/app/" + s.AppSlug) }>{ s.AppSlug }</a></td>
+						<td>{ s.Stage }</td>
+						<td class="mono">{ usageClientLabel(s.ClientID) }</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</section>
+}
+
+templ usageNoLoginSection(slugs []string) {
+	<section class="detail-section">
+		<h2>kein Login</h2>
+		<div class="alert alert--info" role="note">
+			Diese Apps nennen keine <code>auth.client_ids</code> im Claim. Für viele Apps ist das
+			gewollt (öffentlich oder ohne Anmeldung) — das ist kein Fehler.
+		</div>
+		<ul class="usage-slugs">
+			for _, slug := range slugs {
+				<li><a href={ templ.URL("/app/" + slug) }>{ slug }</a></li>
+			}
+		</ul>
+	</section>
+}
+
+// UsageDetailPage renders GET /usage/{client_id}: per-account activity.
+templ UsageDetailPage(props PageProps, d UsageDetail) {
+	@Layout(props) {
+		<p><a href="/usage">← Nutzung</a></p>
+		<section class="hero">
+			<h1>
+				{ usageDetailTitle(d) }
+				if d.AppSlug != "" {
+					<small>· <a href={ templ.URL("/app/" + d.AppSlug) }>{ d.AppSlug }</a></small>
+				}
+			</h1>
+			<dl class="kv">
+				<dt>client_id</dt>
+				<dd class="mono">{ usageClientLabel(d.ClientID) }</dd>
+				<dt>Issuer</dt>
+				<dd>{ usageIssuerLabel(d.Issuer) }</dd>
+				<dt>Registriert</dt>
+				<dd>
+					if d.Registered {
+						<span class="badge badge--ok">registriert</span>
+					} else {
+						<span class="badge badge--warn">nicht registriert</span>
+					}
+				</dd>
+			</dl>
+		</section>
+		if d.State == UsageOK || d.State == UsageInvalid {
+			@usageRangeForm(d)
+		}
+		@usageStateBox(d.State, d.Message)
+		if d.State == UsageOK {
+			@usageAccountsTable(d.Accounts)
+		}
+	}
+}
+
+templ usageRangeForm(d UsageDetail) {
+	<form method="get" action={ templ.URL(d.FormAction) } class="toolbar usage-range">
+		<label>Von <input type="date" name="from" value={ d.From }/></label>
+		<label>Bis <input type="date" name="to" value={ d.To }/></label>
+		<input type="hidden" name="issuer" value={ d.Issuer }/>
+		<button type="submit" class="btn-primary">Anzeigen</button>
+		<small class="muted">höchstens 366 Tage</small>
+	</form>
+}
+
+templ usageAccountsTable(accounts []UsageAccount) {
+	<table class="tenants-table usage-table">
+		<thead>
+			<tr>
+				<th>Name</th>
+				<th>Personio-ID</th>
+				<th class="num">Logins</th>
+				<th class="num">Refreshes</th>
+				<th class="num">Nutzungen</th>
+				<th class="num">aktive Tage</th>
+				<th>zuletzt gesehen</th>
+			</tr>
+		</thead>
+		<tbody>
+			if len(accounts) == 0 {
+				<tr><td colspan="7" class="empty">Keine Logins im Zeitraum.</td></tr>
+			}
+			for _, a := range accounts {
+				<tr class="tenant-row">
+					<td>
+						if a.Name != "" {
+							{ a.Name }
+						} else {
+							<span class="mono">{ a.AccountID }</span>
+						}
+					</td>
+					<td>
+						if a.PersonioID != "" {
+							{ a.PersonioID }
+						} else {
+							<span class="muted">—</span>
+						}
+					</td>
+					<td class="num">{ strconv.Itoa(a.Logins) }</td>
+					<td class="num">{ strconv.Itoa(a.Refreshes) }</td>
+					<td class="num">{ strconv.Itoa(a.Uses) }</td>
+					<td class="num">{ strconv.Itoa(a.ActiveDays) }</td>
+					<td>{ fmtUsageTime(a.LastSeenAt) }</td>
+				</tr>
+			}
+		</tbody>
+	</table>
+}

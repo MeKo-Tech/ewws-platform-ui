@@ -62,10 +62,23 @@ type Config struct {
 	EwwsAuthClientID     string
 	EwwsAuthClientSecret string
 
-	// EwwsAuthWarning is non-empty when the ewws-auth env vars were only
-	// partially set and the integration was therefore disabled. main
+	// EwwsAuthWarning is non-empty when the scope-catalog env vars were
+	// only partially set and the catalog was therefore disabled. main
 	// logs it once on boot.
 	EwwsAuthWarning string
+
+	// EwwsAuthMachineClientID and EwwsAuthMachineClientSecret are the
+	// Entra app credential the platform UI exchanges at ewws-auth
+	// (client_credentials) for the /usage activity view. Together with
+	// EwwsAuthURL they enable UsageEnabled; a partial set disables only
+	// the usage view (see UsageWarning).
+	EwwsAuthMachineClientID     string
+	EwwsAuthMachineClientSecret string
+
+	// UsageWarning is non-empty when the machine credential was only
+	// partially set (or set without EWWS_AUTH_URL) and /usage was
+	// therefore disabled. main logs it once on boot.
+	UsageWarning string
 }
 
 // LoadFromEnv reads configuration from the environment.
@@ -182,37 +195,65 @@ func (c *Config) GitHubAPIReady() bool {
 	return c.GitHubAPIToken != ""
 }
 
-// loadEwwsAuth reads EWWS_AUTH_URL / EWWS_AUTH_CLIENT_ID /
-// EWWS_AUTH_CLIENT_SECRET. Either all three are set, or the integration
-// is disabled — a partial set is cleared and reported via
-// EwwsAuthWarning (never names the secret's value).
+// loadEwwsAuth reads EWWS_AUTH_URL plus two independent credential
+// pairs that share it:
+//
+//   - EWWS_AUTH_CLIENT_ID / EWWS_AUTH_CLIENT_SECRET for the scope catalog,
+//   - EWWS_AUTH_MACHINE_CLIENT_ID / EWWS_AUTH_MACHINE_CLIENT_SECRET for
+//     the /usage activity view.
+//
+// A pair that is set without a URL, or only half set, is cleared and
+// reported via EwwsAuthWarning resp. UsageWarning (never naming a
+// secret's value). EWWS_AUTH_URL itself is never cleared: a URL without
+// a given pair just leaves that integration off, silently.
 func (c *Config) loadEwwsAuth() {
 	c.EwwsAuthURL = os.Getenv("EWWS_AUTH_URL")
 	c.EwwsAuthClientID = os.Getenv("EWWS_AUTH_CLIENT_ID")
 	c.EwwsAuthClientSecret = os.Getenv("EWWS_AUTH_CLIENT_SECRET")
+	c.EwwsAuthMachineClientID = os.Getenv("EWWS_AUTH_MACHINE_CLIENT_ID")
+	c.EwwsAuthMachineClientSecret = os.Getenv("EWWS_AUTH_MACHINE_CLIENT_SECRET")
 
-	set := 0
-
-	for _, v := range []string{c.EwwsAuthURL, c.EwwsAuthClientID, c.EwwsAuthClientSecret} {
-		if v != "" {
-			set++
-		}
+	if !credentialPairUsable(c.EwwsAuthURL, c.EwwsAuthClientID, c.EwwsAuthClientSecret) {
+		c.EwwsAuthWarning = "ewws-auth scope catalog disabled: EWWS_AUTH_URL, EWWS_AUTH_CLIENT_ID " +
+			"and EWWS_AUTH_CLIENT_SECRET must all be set"
+		c.EwwsAuthClientID = ""
+		c.EwwsAuthClientSecret = ""
 	}
 
-	if set == 0 || set == 3 {
-		return
+	if !credentialPairUsable(
+		c.EwwsAuthURL,
+		c.EwwsAuthMachineClientID,
+		c.EwwsAuthMachineClientSecret,
+	) {
+		c.UsageWarning = "ewws-auth usage view disabled: EWWS_AUTH_URL, EWWS_AUTH_MACHINE_CLIENT_ID " +
+			"and EWWS_AUTH_MACHINE_CLIENT_SECRET must all be set"
+		c.EwwsAuthMachineClientID = ""
+		c.EwwsAuthMachineClientSecret = ""
+	}
+}
+
+// credentialPairUsable is false when the pair is set (fully or partly)
+// but cannot be used: half of it is missing, or there is no URL. An
+// entirely unset pair is fine — that integration is just off.
+func credentialPairUsable(baseURL, id, secret string) bool {
+	if id == "" && secret == "" {
+		return true
 	}
 
-	c.EwwsAuthWarning = "ewws-auth integration disabled: EWWS_AUTH_URL, EWWS_AUTH_CLIENT_ID " +
-		"and EWWS_AUTH_CLIENT_SECRET must all be set"
-	c.EwwsAuthURL = ""
-	c.EwwsAuthClientID = ""
-	c.EwwsAuthClientSecret = ""
+	return baseURL != "" && id != "" && secret != ""
 }
 
 // EwwsAuthEnabled reports whether the ewws-auth scope catalog is wired up.
 func (c *Config) EwwsAuthEnabled() bool {
 	return c.EwwsAuthURL != "" && c.EwwsAuthClientID != "" && c.EwwsAuthClientSecret != ""
+}
+
+// UsageEnabled reports whether the /usage activity view can fetch from
+// ewws-auth: base URL plus the machine client credential.
+func (c *Config) UsageEnabled() bool {
+	return c.EwwsAuthURL != "" &&
+		c.EwwsAuthMachineClientID != "" &&
+		c.EwwsAuthMachineClientSecret != ""
 }
 
 // PrometheusEnabled reports whether the metrics integration is wired up.

@@ -36,6 +36,10 @@ type Deps struct {
 	// EwwsAuth reads the scope catalog for the detail page. May be nil
 	// or disabled; Enabled() is nil-safe.
 	EwwsAuth *ewwsauth.Client
+
+	// Activity reads login activity for /usage with the machine token.
+	// May be nil or disabled; the page then says "nicht konfiguriert".
+	Activity *ewwsauth.ActivityClient
 }
 
 // NewRouter builds the *http.ServeMux + middleware chain.
@@ -85,6 +89,13 @@ func registerPages(mux *http.ServeMux, d Deps) {
 	mux.Handle("POST /claim", claim)
 
 	mux.Handle("GET /docs", handlers.Docs{})
+
+	mux.Handle("GET /usage", handlers.Usage{Cfg: d.Cfg, Activity: d.Activity, Logger: d.Logger})
+	mux.Handle("GET /usage/{client_id}", handlers.UsageClient{
+		Cfg:      d.Cfg,
+		Activity: d.Activity,
+		Logger:   d.Logger,
+	})
 
 	mux.Handle("POST /app/{slug}/bootstrap", handlers.BootstrapRepo{
 		Cfg:    d.Cfg,

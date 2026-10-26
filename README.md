@@ -32,6 +32,8 @@ Lives at `https://platform.apps.meko.work` (Tailscale-internal, behind Traefik).
 | `GET /claim` | session (anonymous → redirect to `/auth/login`) | claim form |
 | `POST /claim` | session + CSRF | opens the registry PR, bootstraps the repo, renders a success page linking the PR |
 | `GET /docs` | anonymous | onboarding + best-practice page |
+| `GET /usage` | admin session (anonymous → redirect to `/auth/login`, non-admin → 403) | login activity per ewws-auth client_id (1/7/30 days), linked to registry apps via `auth.client_ids` |
+| `GET /usage/{client_id}` | admin session (as above) | per-account activity of one client; `?issuer=&from=&to=` (YYYY-MM-DD, at most 366 days); `-` = logins without client_id |
 | `GET /auth/login` | — | starts GitHub OAuth |
 | `GET /auth/callback` | — | finishes GitHub OAuth, redirects to `/` |
 | `POST /auth/logout` | — | clears session, redirects to `/` |
@@ -56,14 +58,31 @@ Lives at `https://platform.apps.meko.work` (Tailscale-internal, behind Traefik).
 | `ADMIN_TEAM` | no | `ewws` |
 | `BASE_URL` | no | `https://platform.apps.meko.work` (used for OAuth redirect URI) |
 | `LOG_FORMAT` | no | `json` in prod, `text` otherwise |
-| `EWWS_AUTH_URL` | no | — (e.g. `https://login.ewws.meko.dev`; enables the read-only scope catalog on `/app/<slug>`) |
+| `EWWS_AUTH_URL` | no | — (e.g. `https://login.ewws.meko.dev`; base URL for the scope catalog and `/usage`) |
 | `EWWS_AUTH_CLIENT_ID` | no | — (HTTP Basic client id for `GET /scope-catalog/{name}`) |
 | `EWWS_AUTH_CLIENT_SECRET` | no | — (HTTP Basic client secret) |
+| `EWWS_AUTH_MACHINE_CLIENT_ID` | no | — (Entra app id of the machine account; enables `/usage`) |
+| `EWWS_AUTH_MACHINE_CLIENT_SECRET` | no | — (client secret of that Entra app) |
 
-The three `EWWS_AUTH_*` vars go together: if only some are set, the
-integration is disabled with a startup warning (startup never fails on
-them). Scope lookups are cached in memory for 5 minutes and time out
-after 3 s; the detail page renders regardless of ewws-auth.
+`EWWS_AUTH_URL` is shared by two integrations, each with its own
+credential pair: `EWWS_AUTH_CLIENT_ID`/`_SECRET` enable the read-only
+scope catalog on `/app/<slug>`, `EWWS_AUTH_MACHINE_CLIENT_ID`/`_SECRET`
+enable `/usage`. A pair that is only half set, or set without the URL,
+disables just that integration with a startup warning (startup never
+fails on them); the URL alone just leaves both off, without a warning.
+Scope lookups are cached in memory for 5 minutes and
+time out after 3 s; the detail page renders regardless of ewws-auth.
+
+`/usage` signs in to ewws-auth as a machine account: it exchanges the
+Entra app credential at `POST /login/azure` (`client_credentials`) and
+calls `GET /api/activity/clients[/{client_id}]` with the resulting
+Bearer token. The token stays on the server — cached until shortly
+before expiry, never sent to the browser, never logged. The machine
+account needs an Entra app whose service principal holds the
+`machine_role` app role on the ewws-auth Azure app, an App account in
+ewws-auth, and the grant `auth:activity:r` (see ewws-auth
+`docs/machine-clients.md`). Without the grant the page says so instead
+of failing; without the env vars it says "nicht konfiguriert".
 
 Generate `SESSION_SECRET` like this:
 

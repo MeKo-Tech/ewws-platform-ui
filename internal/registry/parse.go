@@ -64,6 +64,10 @@ type App struct {
 // ^[a-z0-9_]+$ in the registry schema).
 type Auth struct {
 	Scope string `yaml:"scope,omitempty" json:"scope,omitempty"`
+	// ClientIDs is the ewws-auth client_id the app signs in with, per
+	// stage ("staging", "prod"). It labels login activity on /usage and
+	// grants nothing.
+	ClientIDs map[string]string `yaml:"client_ids,omitempty" json:"client_ids,omitempty"`
 }
 
 // AuthScope returns the claimed auth scope, or "" when the claim has no
