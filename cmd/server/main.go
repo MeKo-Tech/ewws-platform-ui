@@ -55,6 +55,21 @@ func run() error {
 	authCl := ewwsauth.New(cfg.EwwsAuthURL, cfg.EwwsAuthClientID, cfg.EwwsAuthClientSecret)
 	logger.Info("ewws-auth scope catalog", slog.Bool("enabled", authCl.Enabled()))
 
+	if cfg.UsageWarning != "" {
+		logger.Warn(cfg.UsageWarning)
+	}
+
+	var activityCl *ewwsauth.ActivityClient
+	if cfg.UsageEnabled() {
+		activityCl = ewwsauth.NewActivityClient(
+			cfg.EwwsAuthURL,
+			cfg.EwwsAuthMachineClientID,
+			cfg.EwwsAuthMachineClientSecret,
+		)
+	}
+
+	logger.Info("ewws-auth usage view", slog.Bool("enabled", activityCl.Enabled()))
+
 	store := middleware.NewSessionStore(cfg.SessionSecret)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -170,6 +185,7 @@ func run() error {
 		DriftStore:      driftStore,
 		Aggregator:      aggregator,
 		EwwsAuth:        authCl,
+		Activity:        activityCl,
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Port)

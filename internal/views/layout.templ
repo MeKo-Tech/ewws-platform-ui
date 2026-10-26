@@ -49,6 +49,9 @@ templ header(user *SessionUser) {
 				if user != nil {
 					<a href="/claim">Claim</a>
 				}
+				if user != nil && user.IsAdmin {
+					<a href="/usage">Nutzung</a>
+				}
 				if user != nil {
 					<span class="user">
 						{ user.Login }

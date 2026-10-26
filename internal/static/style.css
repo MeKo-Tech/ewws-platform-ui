@@ -379,6 +379,8 @@ pre {
 }
 
 .alert--error { background: #ffebe9; color: var(--error); border: 1px solid var(--error); }
+.alert--neutral { background: #f0f0f0; color: var(--neutral); border: 1px solid var(--border); }
+.alert--info { background: var(--meko-blue-light); color: var(--meko-blue-dark); border: 1px solid var(--meko-blue); }
 
 .muted { color: var(--muted); }
 
@@ -839,3 +841,29 @@ pre {
 .bootstrap-result h3 { margin: 0 0 0.4rem; font-size: 1rem; }
 .bootstrap-result ul { list-style: none; padding: 0; margin: 0; }
 .bootstrap-result li { padding: 0.2rem 0; }
+
+/* Nutzung (/usage) */
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+/* Two header rows (window + Nutzer/Logins): stick the whole thead so the
+   rows do not stack on top of each other at top: 0. */
+.usage-table thead { position: sticky; top: 0; z-index: 1; }
+.usage-table thead th { position: static; }
+.usage-table th.num { text-align: right; }
+.usage-table th.usage-table__group { text-align: center; }
+.usage-table small.muted { font-size: 0.8rem; }
+
+.usage-range { flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+.usage-range label { display: inline-flex; align-items: center; gap: 0.3rem; }
+
+.usage-slugs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+  list-style: none;
+  padding: 0;
+}
