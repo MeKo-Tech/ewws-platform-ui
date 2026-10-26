@@ -849,6 +849,10 @@ pre {
   font-size: 0.85rem;
 }
 
+/* Two header rows (window + Nutzer/Logins): stick the whole thead so the
+   rows do not stack on top of each other at top: 0. */
+.usage-table thead { position: sticky; top: 0; z-index: 1; }
+.usage-table thead th { position: static; }
 .usage-table th.num { text-align: right; }
 .usage-table th.usage-table__group { text-align: center; }
 .usage-table small.muted { font-size: 0.8rem; }
