@@ -151,14 +151,18 @@ templ docsClaimSection() {
 		<p>
 			Details und Grenzwerte stehen in der <a href={ templ.SafeURL(docsClaimRefURL) }>Claim reference</a>.
 		</p>
-		<h3>PR im App-Repo</h3>
+		<h3>Bootstrap im App-Repo</h3>
 		<p>
-			Das Formular öffnet zusätzlich einen PR im App-Repo mit PR-Titel-Check,
-			release-please und <code>AGENTS.md</code>. Bei einem Repo aus dem Template ist das meiste
-			davon schon vorhanden. Die <code>.sops.yaml</code> und <code>values.env</code> /
-			<code>values.sops.env</code> aus diesem PR gehören zum alten Secret-Ablauf und werden
-			nicht mehr ausgewertet: nicht übernehmen, Secrets laufen wie in
-			<a href="#secrets">Abschnitt 6</a>.
+			Beim Claim legt das Formular außerdem fehlende Standard-Dateien im App-Repo an:
+			PR-Titel-Check, release-please und <code>AGENTS.md</code>. Das geschieht ohne PR als
+			direkter Commit pro Datei auf den Default-Branch; Dateien, die es schon gibt, bleiben
+			unangetastet. Bei einem Repo aus dem Template existiert das meiste davon bereits.
+		</p>
+		<p>
+			Fehlen <code>.sops.yaml</code>, <code>values.env</code> oder <code>values.sops.env</code>,
+			legt der Bootstrap auch diese an. Sie gehören zum alten Secret-Ablauf und werden nicht
+			mehr ausgewertet: <strong>keine Secrets dort eintragen</strong> und die Dateien wieder
+			löschen. Secrets laufen wie in <a href="#secrets">Abschnitt 6</a>.
 		</p>
 	</section>
 }
