@@ -38,6 +38,7 @@ func TestDocsDescribesCurrentFlow(t *testing.T) {
 		"@MeKo-Tech/ewws",
 		"tenant-&lt;slug&gt;-&lt;stage&gt;",
 		"platform://guide/new-app",
+		"secrets.VIBE_CODE_KEY_VAULT_CLIENT_SECRET",
 		docsRunbookURL,
 		docsOnboardingURL,
 	} {
