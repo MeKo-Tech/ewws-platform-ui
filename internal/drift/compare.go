@@ -2,7 +2,8 @@
 // staging and prod stages, using the GitHub compare API as the source of
 // truth ("staging is N commits ahead of prod").
 //
-// Tag values flow in from the registry App.Images.<C>.Tag.{Staging,Prod}.
+// Tag values flow in from the registry tag files tags/<slug>/{staging,prod}.yaml
+// (imageTags.<component>).
 // The image-tag convention used by every MeKo-Tech repo is:
 //
 //	`sha-<7..40 hex>` — newest-build (chungus image-updater rolling tip),

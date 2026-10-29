@@ -356,7 +356,7 @@ func claimPRBody(login string, input *registry.ClaimInput, files map[string][]by
 		fmt.Fprintf(&b, "- %s: `%s` (enabled: %t)\n", s.name, s.in.Host, s.in.Enabled)
 	}
 
-	b.WriteString("\nImages (initial tag for staging and prod):\n\n")
+	b.WriteString("\nImages (initial tag of every enabled stage, seeded into the tag files):\n\n")
 
 	if input.HasBackend {
 		fmt.Fprintf(

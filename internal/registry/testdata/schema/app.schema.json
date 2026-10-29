@@ -464,23 +464,13 @@
     "imageRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "tag"],
+      "required": ["repository"],
       "properties": {
         "repository": {
           "type": "string",
           "description": "OCI image repository. Kyverno on chungus restricts pulls to ghcr.io/MeKo-Tech/*, zot.ewws.meko.dev/*, docker.io/library/*, registry.k8s.io/*, or quay.io/*.",
           "minLength": 3,
           "maxLength": 253
-        },
-        "tag": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["staging", "prod"],
-          "description": "Image tags per stage. argocd-image-updater writes back into `tag.<stage>` so staging (newest sha-*) and prod (newest semver) don't overwrite each other.",
-          "properties": {
-            "staging": { "$ref": "#/definitions/imageTagValue" },
-            "prod": { "$ref": "#/definitions/imageTagValue" }
-          }
         }
       }
     },

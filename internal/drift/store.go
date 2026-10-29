@@ -39,6 +39,19 @@ func NewStore(db *storage.DB) *Store {
 	return &Store{db: db}
 }
 
+// Delete removes the (slug, component) row, if any.
+func (s *Store) Delete(ctx context.Context, slug string, component Component) error {
+	_, err := s.db.SQL().ExecContext(ctx,
+		`DELETE FROM drift_snapshot WHERE slug = ? AND component = ?`,
+		slug, string(component),
+	)
+	if err != nil {
+		return fmt.Errorf("delete drift_snapshot: %w", err)
+	}
+
+	return nil
+}
+
 // Upsert writes (or replaces) one (slug, component) row.
 func (s *Store) Upsert(ctx context.Context, snap Snapshot) error {
 	_, err := s.db.SQL().ExecContext(ctx, `

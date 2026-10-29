@@ -44,7 +44,9 @@ type ClaimInput struct {
 // ComponentInput holds the form settings of one component.
 type ComponentInput struct {
 	ImageRepository string
-	ImageTag        string
+	// ImageTag is the initial tag of every enabled stage; it goes into
+	// tags/<slug>/<stage>.yaml, never into the claim.
+	ImageTag string
 
 	MemoryLimit string
 	CPULimit    string
@@ -168,13 +170,7 @@ func (c *ClaimInput) stage(in *StageInput, prod bool) ClaimStage {
 }
 
 func image(in *ComponentInput) *ClaimImage {
-	return &ClaimImage{
-		Repository: in.ImageRepository,
-		Tag: ClaimImageTag{
-			Staging: quotedString(in.ImageTag),
-			Prod:    quotedString(in.ImageTag),
-		},
-	}
+	return &ClaimImage{Repository: in.ImageRepository}
 }
 
 func resource(in *ComponentInput) *ClaimResource {

@@ -184,7 +184,7 @@ templ componentFieldset(name, title, defaultMemory, defaultCPU string, enabled b
 			<label>
 				Initial tag
 				<input type="text" name={ name + "_image_tag" } placeholder="sha-abc1234 oder 1.0.0" value={ st.ImageTag }/>
-				<small>Gilt für staging und prod; <code>latest</code> ist nicht erlaubt; die App-CI überschreibt es danach.</small>
+				<small>Landet in <code>tags/&lt;slug&gt;/&lt;stage&gt;.yaml</code> jeder aktiven Stage, nicht im Claim; <code>latest</code> ist nicht erlaubt; die App-CI überschreibt es danach.</small>
 			</label>
 		</div>
 		<div class="row">

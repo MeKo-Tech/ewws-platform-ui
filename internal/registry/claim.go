@@ -75,16 +75,11 @@ type ClaimImages struct {
 	Frontend *ClaimImage `yaml:"frontend,omitempty"`
 }
 
-// ClaimImage is images.<c>.
+// ClaimImage is images.<c>. It carries the repository only: the image tag
+// of every stage lives in tags/<slug>/<stage>.yaml (see TagFiles), and the
+// registry rejects a claim with images.<c>.tag.
 type ClaimImage struct {
-	Repository string        `yaml:"repository"`
-	Tag        ClaimImageTag `yaml:"tag"`
-}
-
-// ClaimImageTag is images.<c>.tag; the schema requires both stages.
-type ClaimImageTag struct {
-	Staging quotedString `yaml:"staging"`
-	Prod    quotedString `yaml:"prod"`
+	Repository string `yaml:"repository"`
 }
 
 // ClaimResources is resources.<c> for the enabled components only.
