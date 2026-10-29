@@ -80,27 +80,35 @@ func (a App) AuthScope() string {
 	return a.Auth.Scope
 }
 
-// Images holds the image repository + per-stage tag for each workload.
-// The schema is `images.<component>.{repository,tag.{staging,prod}}` — see
-// meko-app chart ≥1.6.0 and the image-updater AppSet which bumps each
-// stage independently.
+// Images holds the image repository of each workload. The image tag of a
+// stage is not part of the claim: it lives in tags/<slug>/<stage>.yaml
+// (see TagFile and FetchTagFile).
 type Images struct {
 	Backend  ImageBlock `yaml:"backend,omitempty"  json:"backend,omitempty"`
 	Frontend ImageBlock `yaml:"frontend,omitempty" json:"frontend,omitempty"`
 }
 
-// ImageBlock is the repository + per-stage tag for one workload.
+// ImageBlock is the repository of one workload.
 type ImageBlock struct {
-	Repository string   `yaml:"repository,omitempty" json:"repository,omitempty"`
-	Tag        ImageTag `yaml:"tag,omitempty"        json:"tag,omitempty"`
+	Repository string `yaml:"repository,omitempty" json:"repository,omitempty"`
 }
 
-// ImageTag carries the per-stage image tag the chart resolves at deploy
-// time. Either field may be empty (chart falls back to a chart default).
-type ImageTag struct {
-	Staging string `yaml:"staging,omitempty" json:"staging,omitempty"`
-	Prod    string `yaml:"prod,omitempty"    json:"prod,omitempty"`
+// TagFile is a parsed tags/<slug>/<stage>.yaml: the image tag of each
+// component in one stage, written by the app's CI (schemas/tag.schema.json
+// in the registry). It is the only source of a stage's image tag.
+type TagFile struct {
+	ImageTags ComponentTags `yaml:"imageTags" json:"imageTags"`
 }
+
+// ComponentTags is the imageTags block of a tag file. A component without
+// an entry has no tag in that stage.
+type ComponentTags struct {
+	Backend  string `yaml:"backend,omitempty"  json:"backend,omitempty"`
+	Frontend string `yaml:"frontend,omitempty" json:"frontend,omitempty"`
+}
+
+// ErrNotFound is returned (wrapped) when the registry has no such file.
+var ErrNotFound = errors.New("registry: not found")
 
 // Owners — both required, GitHub logins.
 type Owners struct {
@@ -379,6 +387,45 @@ func FetchSingleApp(ctx context.Context, repo, slug string) (*App, []byte, error
 	return app, body, nil
 }
 
+// ParseTagFile decodes a tags/<slug>/<stage>.yaml document.
+func ParseTagFile(data []byte) (*TagFile, error) {
+	var f TagFile
+	if err := yaml.Unmarshal(data, &f); err != nil {
+		return nil, fmt.Errorf("registry: parse tag file: %w", err)
+	}
+
+	return &f, nil
+}
+
+// FetchTagFile returns tags/<slug>/<stage>.yaml parsed, via the Contents
+// API like FetchSingleApp. A stage without a tag file returns an error
+// wrapping ErrNotFound.
+func FetchTagFile(ctx context.Context, repo, slug, stage string) (*TagFile, error) {
+	if !SlugRegex.MatchString(slug) {
+		return nil, errors.New("invalid slug")
+	}
+
+	if stage != stageStaging && stage != stageProd {
+		return nil, fmt.Errorf("invalid stage %q", stage)
+	}
+
+	url := fmt.Sprintf(
+		"https://api.github.com/repos/%s/contents/tags/%s/%s.yaml?ref=main", repo, slug, stage,
+	)
+
+	envelope, err := getRaw(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := decodeContentsEnvelope(envelope)
+	if err != nil {
+		return nil, err
+	}
+
+	return ParseTagFile(body)
+}
+
 // decodeContentsEnvelope unwraps a `{"encoding":"base64","content":"…"}`
 // response from the GitHub Contents API into the raw file bytes.
 func decodeContentsEnvelope(body []byte) ([]byte, error) {
@@ -421,6 +468,10 @@ func getRaw(ctx context.Context, url string) ([]byte, error) {
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("GET %s: %s: %w", url, resp.Status, ErrNotFound)
+	}
 
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)

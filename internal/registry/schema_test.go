@@ -10,7 +10,14 @@ package registry
 //	gh api "repos/MeKo-Tech/ewws-apps-registry/contents/schemas/tag.schema.json?ref=$sha" \
 //	  -H 'Accept: application/vnd.github.raw' > internal/registry/testdata/schema/tag.schema.json
 //
-// and update the commit above. Golden files are regenerated with
+// and update the commit above.
+//
+// Local edit on top of that commit: images.<c> (definitions.imageRef) no
+// longer has `tag`, and tag.schema.json no longer names the claim fallback.
+// This mirrors the registry PR that makes tags/<slug>/<stage>.yaml the only
+// source of the image tag; refresh from the registry once it has landed.
+//
+// Golden files are regenerated with
 //
 //	go test ./internal/registry -run TestClaimGolden -update
 
@@ -300,6 +307,13 @@ func assertScriptRules(t *testing.T, in *ClaimInput, doc map[string]any, out []b
 		}
 	}
 
+	for _, c := range enabled {
+		img, _ := doc["images"].(map[string]any)[c].(map[string]any)
+		if got := keys(img); !slices.Equal(got, []string{"repository"}) {
+			t.Errorf("images.%s keys = %v, want [repository] (the tag lives in tags/)", c, got)
+		}
+	}
+
 	for _, c := range []string{componentBackend, componentFrontend} {
 		if slices.Contains(enabled, c) {
 			continue
@@ -457,8 +471,11 @@ func TestSchemaHarnessRejects(t *testing.T) {
 	}
 
 	for name, mutate := range map[string]func(string) string{
-		"latest tag": func(s string) string {
-			return strings.Replace(s, `staging: "1.0.0"`, `staging: "latest"`, 1)
+		"image tag in the claim": func(s string) string {
+			return strings.Replace(s,
+				"repository: ghcr.io/meko-tech/material-order/frontend\n",
+				"repository: ghcr.io/meko-tech/material-order/frontend\n"+
+					"    tag:\n      staging: \"1.0.0\"\n      prod: \"1.0.0\"\n", 1)
 		},
 		"invalid date": func(s string) string {
 			return strings.Replace(s, `"2026-10-23"`, `"2026-02-30"`, 1)
@@ -549,11 +566,11 @@ func TestValidateRejects(t *testing.T) {
 	}{
 		"latest tag": {
 			func(c *ClaimInput) { c.Frontend.ImageTag = "latest" },
-			"images.frontend.tag may not be latest",
+			"imageTags.frontend may not be latest",
 		},
 		"bad tag": {
 			func(c *ClaimInput) { c.Frontend.ImageTag = ".1" },
-			"images.frontend.tag",
+			"imageTags.frontend",
 		},
 		"no component": {
 			func(c *ClaimInput) { c.HasFrontend = false },
@@ -683,5 +700,28 @@ func TestValidateRepoURLPercentEncoded(t *testing.T) {
 		if err := validateRepoURL(raw); err != nil {
 			t.Errorf("validateRepoURL(%q) = %v, want nil", raw, err)
 		}
+	}
+}
+
+// TestParseTagFile reads a seeded tag file back the way the drift scanner
+// does: the tag file, not the claim, carries each stage's image tag.
+func TestParseTagFile(t *testing.T) {
+	t.Parallel()
+
+	in := fullInput()
+
+	files, err := in.TagFiles()
+	if err != nil {
+		t.Fatalf("TagFiles: %v", err)
+	}
+
+	f, err := ParseTagFile(files["tags/"+in.Slug+"/prod.yaml"])
+	if err != nil {
+		t.Fatalf("ParseTagFile: %v", err)
+	}
+
+	want := ComponentTags{Backend: in.Backend.ImageTag, Frontend: in.Frontend.ImageTag}
+	if f.ImageTags != want {
+		t.Errorf("imageTags = %+v, want %+v", f.ImageTags, want)
 	}
 }

@@ -184,7 +184,7 @@ func (in *ComponentInput) validate(name string, known map[string]bool) error {
 		return fmt.Errorf("images.%s.repository is required (3 to 253 characters)", name)
 	}
 
-	if err := validateImageTag("images."+name+".tag", in.ImageTag); err != nil {
+	if err := validateImageTag("imageTags."+name, in.ImageTag); err != nil {
 		return err
 	}
 
@@ -338,7 +338,7 @@ func validSecretKey(key string) bool {
 		!strings.HasPrefix(key, "..")
 }
 
-// validateImageTag is the schema pattern
+// validateImageTag is the tag schema pattern (tags/<slug>/<stage>.yaml)
 // ^(?!latest$)[A-Za-z0-9_][A-Za-z0-9_.\-]{0,127}$.
 func validateImageTag(field, tag string) error {
 	if tag == "" {

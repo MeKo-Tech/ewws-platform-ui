@@ -20,9 +20,6 @@ stages:
 images:
   frontend:
     repository: ghcr.io/meko-tech/material-order/frontend
-    tag:
-      staging: "1.0.0"
-      prod: "1.0.0"
 resources:
   frontend:
     memory_limit: 128Mi

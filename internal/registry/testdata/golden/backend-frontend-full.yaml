@@ -31,14 +31,8 @@ stages:
 images:
   backend:
     repository: ghcr.io/meko-tech/material-order/backend
-    tag:
-      staging: "sha-c758f9c"
-      prod: "sha-c758f9c"
   frontend:
     repository: ghcr.io/meko-tech/material-order/frontend
-    tag:
-      staging: "1.0.0"
-      prod: "1.0.0"
 resources:
   backend:
     memory_limit: 256Mi
