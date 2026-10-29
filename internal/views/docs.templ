@@ -62,8 +62,8 @@ templ docsFlowSection() {
 		</ol>
 		<p>
 			Dein Repo spricht nie direkt mit dem Cluster: kein Helm, kein kubectl, keine
-			Kubeconfig und keine Key-Vault-Credentials in der CI. Alles läuft über PRs
-			gegen die Registry.
+			Kubeconfig und nie <code>AZURE_EWWS_KEY_VAULT_CLIENT_SECRET</code>/<code>_ID</code>
+			(die gehören der ewws-Infrastruktur). Alles läuft über PRs gegen die Registry.
 		</p>
 		<div class="docs-callout">
 			<strong>Ausführliche Anleitungen:</strong>
@@ -240,7 +240,7 @@ templ docsSecretsSection() {
 		<ol>
 			<li><code>just secrets-login</code>, dann Werte mit <code>just secrets-set &lt;stage&gt; &lt;name&gt; &lt;KEY&gt;</code> (Wert über stdin) oder <code>just secrets-edit &lt;stage&gt;</code> in <code>secrets/&lt;stage&gt;.sops.yaml</code> ablegen. Verschlüsselt wird nur mit dem Key <code>sops-key-vibe</code> im Key Vault <code>meko-vibe-vault</code>, nie mit <code>mekorp-vault</code>.</li>
 			<li><code>just secrets-seal</code> versiegelt jedes Secret nach <code>deploy/sealed/&lt;stage&gt;/&lt;name&gt;.yaml</code>; das wird committet.</li>
-			<li>Der Release-Workflow (<code>write-registry-secrets</code>) kopiert die SealedSecrets nach <code>secrets/&lt;slug&gt;/&lt;stage&gt;/</code> in der Registry. Die CI entschlüsselt nie etwas.</li>
+			<li>Der Release-Workflow (<code>write-registry-secrets</code>) kopiert die SealedSecrets nach <code>secrets/&lt;slug&gt;/&lt;stage&gt;/</code> in der Registry. Dafür entschlüsselt die CI nichts und braucht keinen Key-Vault-Zugriff. Muss ein Workflow doch SOPS entschlüsseln (z.B. ein Test mit Secret), setzt er <code>AZURE_CLIENT_ID: { "${{ vars.VIBE_CODE_KEY_VAULT_CLIENT_ID }}" }</code>, <code>AZURE_CLIENT_SECRET: { "${{ secrets.VIBE_CODE_KEY_VAULT_CLIENT_SECRET }}" }</code> und <code>AZURE_TENANT_ID: { "${{ vars.AZURE_TENANT_ID }}" }</code>, nie die <code>AZURE_EWWS_KEY_VAULT_*</code>-Credentials.</li>
 			<li>Im Claim die Namen unter <code>sealed_secrets</code> eintragen und über <code>components.&lt;c&gt;.env_from</code> oder <code>env</code> referenzieren.</li>
 		</ol>
 		<pre><code>{ docsSealedSecretsSnippet() }</code></pre>
