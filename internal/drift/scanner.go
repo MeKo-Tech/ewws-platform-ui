@@ -68,6 +68,15 @@ func (s *Scanner) RunOnce(ctx context.Context) (int, error) {
 		for _, b := range blocks {
 			snap, ok := s.collect(ctx, app.Slug, owner, repo, b.Component, b.Staging, b.Prod)
 			if !ok {
+				// Both tag files were read (or are missing) and name no tag
+				// for this component: drop an older snapshot, e.g. one
+				// built from the claim's former images.<c>.tag, so the
+				// dashboard shows "not tracked" instead of stale drift.
+				if err := s.Store.Delete(ctx, app.Slug, b.Component); err != nil {
+					s.logf("error", "delete drift_snapshot failed",
+						"slug", app.Slug, "component", b.Component, "err", err)
+				}
+
 				continue
 			}
 
