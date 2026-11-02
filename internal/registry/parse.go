@@ -153,6 +153,8 @@ type ResourceBlock struct {
 }
 
 // Features is the optional opt-in block (websocket, jobs, auth, ...).
+// IngressAuth stays readable for existing claims although nothing renders
+// it and the claim form no longer offers it.
 type Features struct {
 	Websocket     bool           `yaml:"websocket,omitempty"      json:"websocket,omitempty"`
 	ScheduledJobs []ScheduledJob `yaml:"scheduled_jobs,omitempty" json:"scheduled_jobs,omitempty"`

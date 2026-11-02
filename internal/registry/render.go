@@ -34,7 +34,6 @@ type ClaimInput struct {
 
 	AuthScope     string
 	Websocket     bool
-	IngressAuth   string // "", none, github-org, ewws-auth
 	SharedSecrets []string
 
 	// CreatedAt (YYYY-MM-DD) is optional; empty means today (UTC).
@@ -113,10 +112,6 @@ func (c *ClaimInput) ToApp() *Claim {
 
 	if c.CreatedAt == "" {
 		claim.CreatedAt = quotedString(time.Now().UTC().Format(time.DateOnly))
-	}
-
-	if c.IngressAuth != "" && c.IngressAuth != "none" {
-		claim.Features.IngressAuth = c.IngressAuth
 	}
 
 	if c.AuthScope != "" {

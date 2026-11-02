@@ -120,15 +120,6 @@ func (c *ClaimInput) Validate(reserved *ReservedSlugs) error {
 		}
 	}
 
-	switch c.IngressAuth {
-	case "", "none", "github-org", "ewws-auth":
-	default:
-		return fmt.Errorf(
-			"features.ingress_auth %q must be one of none, github-org, ewws-auth",
-			c.IngressAuth,
-		)
-	}
-
 	if c.CreatedAt != "" {
 		if _, err := time.Parse(time.DateOnly, c.CreatedAt); err != nil {
 			return fmt.Errorf("created_at %q must be a date YYYY-MM-DD", c.CreatedAt)

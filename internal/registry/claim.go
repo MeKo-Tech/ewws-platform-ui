@@ -131,9 +131,10 @@ type ClaimAuth struct {
 }
 
 // ClaimFeatures is the required features block; `{}` when nothing is set.
+// It has no ingress_auth: nothing renders that key, so a claim written here
+// never sets it. Reading an existing claim keeps it (see Features).
 type ClaimFeatures struct {
-	Websocket   bool   `yaml:"websocket,omitempty"`
-	IngressAuth string `yaml:"ingress_auth,omitempty"`
+	Websocket bool `yaml:"websocket,omitempty"`
 }
 
 // EnvValue is an env value: a plain string, or a reference to one key of a

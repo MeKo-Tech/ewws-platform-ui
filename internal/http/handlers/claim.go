@@ -125,7 +125,6 @@ func parseClaimForm(
 		Prod:          stage("prod"),
 		AuthScope:     val("auth_scope"),
 		Websocket:     checked("websocket"),
-		IngressAuth:   val("ingress_auth"),
 		SharedSecrets: val("shared_secrets"),
 	}
 
@@ -138,7 +137,6 @@ func parseClaimForm(
 		HasFrontend:         st.HasFrontend,
 		AuthScope:           st.AuthScope,
 		Websocket:           st.Websocket,
-		IngressAuth:         st.IngressAuth,
 		SharedSecrets:       registry.ParseNameList(st.SharedSecrets),
 	}
 

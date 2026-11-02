@@ -70,7 +70,8 @@ func TestRenderYAMLOmitsAuthWhenUnset(t *testing.T) {
 		t.Fatalf("RenderYAML: %v", err)
 	}
 
-	// Top-level key only — features.ingress_auth legitimately contains "auth:".
+	// Top-level key only: a nested key such as features.ingress_auth in an
+	// existing claim legitimately contains "auth:".
 	if regexp.MustCompile(`(?m)^auth:`).Match(out) {
 		t.Errorf("rendered claim contains an auth key although none was set:\n%s", out)
 	}
@@ -125,5 +126,42 @@ func TestRepoDisplayName(t *testing.T) {
 		if got := RepoDisplayName(tc.in); got != tc.want {
 			t.Errorf("RepoDisplayName(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// Existing claims may still carry features.ingress_auth. Reading them must
+// neither fail nor lose the value or the neighbouring features.
+func TestParseYAMLKeepsIngressAuth(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{"none", "github-org", "ewws-auth"} {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+
+			app, err := ParseYAML([]byte(claimBase +
+				"features:\n  websocket: true\n  ingress_auth: " + value + "\n"))
+			if err != nil {
+				t.Fatalf("ParseYAML: %v", err)
+			}
+
+			if app.Features.IngressAuth != value || !app.Features.Websocket {
+				t.Errorf("Features = %+v, want ingress_auth %q and websocket", app.Features, value)
+			}
+		})
+	}
+}
+
+func TestRenderYAMLOmitsIngressAuth(t *testing.T) {
+	t.Parallel()
+
+	in := fullInput()
+
+	out, err := in.ToApp().RenderYAML()
+	if err != nil {
+		t.Fatalf("RenderYAML: %v", err)
+	}
+
+	if regexp.MustCompile(`(?m)^\s*ingress_auth:`).Match(out) {
+		t.Errorf("rendered claim contains ingress_auth:\n%s", out)
 	}
 }
