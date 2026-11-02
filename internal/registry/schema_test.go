@@ -167,7 +167,6 @@ func fullInput() ClaimInput {
 	in := bothInput()
 	in.AuthScope = "ewlt"
 	in.Websocket = true
-	in.IngressAuth = "ewws-auth"
 	in.SharedSecrets = []string{"smtp-relay", "app-db", "app-api"}
 	in.Backend.Port = 8080
 	in.Backend.Env = []EnvVar{
@@ -660,10 +659,6 @@ func TestValidateRejects(t *testing.T) {
 		"bad auth scope": {
 			func(c *ClaimInput) { c.AuthScope = "-x" },
 			"auth.scope",
-		},
-		"bad ingress auth": {
-			func(c *ClaimInput) { c.IngressAuth = "basic" },
-			"features.ingress_auth",
 		},
 		"missing image repository": {
 			func(c *ClaimInput) { c.Frontend.ImageRepository = "" },

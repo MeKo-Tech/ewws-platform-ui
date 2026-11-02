@@ -31,7 +31,6 @@ type ClaimFormState struct {
 
 	AuthScope     string
 	Websocket     bool
-	IngressAuth   string
 	SharedSecrets string
 }
 
@@ -56,10 +55,6 @@ type ClaimStageFormState struct {
 	BackendEnv  string
 	FrontendEnv string
 }
-
-// IngressAuthOptions are the features.ingress_auth choices; "none" first
-// so it is the default.
-var IngressAuthOptions = []string{"none", "github-org", "ewws-auth"}
 
 const (
 	onboardingURL     = "https://github.com/MeKo-Tech/ewws-apps-registry/blob/main/docs/onboarding.md"
@@ -140,10 +135,6 @@ templ Claim(page PageProps, props ClaimProps) {
 				<label>
 					<input type="checkbox" name="websocket" value="1" checked?={ props.PreviousValues.Websocket }/>
 					WebSocket
-				</label>
-				<label>
-					Ingress auth
-					@selectField("ingress_auth", IngressAuthOptions, props.PreviousValues.IngressAuth, "none")
 				</label>
 			</fieldset>
 			<fieldset>

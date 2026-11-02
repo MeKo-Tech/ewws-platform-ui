@@ -40,7 +40,7 @@ func TestClaimFormFields(t *testing.T) {
 		"frontend_image_repo", "frontend_image_tag", "frontend_port", "frontend_env", "frontend_env_from",
 		"staging_host", "staging_enabled", "staging_backend_env", "staging_frontend_env",
 		"prod_host", "prod_enabled", "prod_backend_env", "prod_frontend_env",
-		"auth_scope", "websocket", "ingress_auth", "shared_secrets",
+		"auth_scope", "websocket", "shared_secrets",
 	} {
 		if !strings.Contains(html, `name="`+name+`"`) {
 			t.Errorf("form lacks field %q", name)
@@ -48,8 +48,10 @@ func TestClaimFormFields(t *testing.T) {
 	}
 
 	// ExternalSecrets (claim `secrets`, Key Vault meko-apps) were removed
-	// from the platform; the form must not offer them any more.
-	for _, gone := range []string{`name="secrets"`, "tenant-keyvault", "Vault-Suffix"} {
+	// from the platform; the form must not offer them any more. Neither does it
+	// offer features.ingress_auth, which nothing renders: it put no login in
+	// front of the app.
+	for _, gone := range []string{`name="secrets"`, "tenant-keyvault", "Vault-Suffix", `name="ingress_auth"`, "Ingress auth"} {
 		if strings.Contains(html, gone) {
 			t.Errorf("form still contains %q", gone)
 		}
@@ -66,7 +68,6 @@ func TestClaimFormFields(t *testing.T) {
 		"onboarding.md#8-login-über-ewws-auth",
 		"onboarding.md#7-secrets",
 		"go-react-template/blob/main/AGENTS.md#secrets",
-		`<option value="none" selected>`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("form lacks %q", want)
@@ -118,7 +119,6 @@ func baseClaimForm() url.Values {
 		"staging_enabled":       {"1"},
 		"prod_host":             {"my-app.apps.meko.work"},
 		"prod_enabled":          {"1"},
-		"ingress_auth":          {"none"},
 	}
 }
 
@@ -361,5 +361,30 @@ func TestClaimExistsMessage(t *testing.T) {
 
 	if _, ok := claimExistsMessage(nil); ok {
 		t.Error("nil mapped to claim-exists")
+	}
+}
+
+// A form cached from before the select was removed may still post
+// ingress_auth; the claim ignores it instead of rendering or rejecting it.
+func TestParseClaimFormIgnoresIngressAuth(t *testing.T) {
+	form := baseClaimForm()
+	form.Set("ingress_auth", "github-org")
+
+	in, _, err := parseClaimForm(form, testUser)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if err := in.Validate(nil); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+
+	files, err := claimFiles(in)
+	if err != nil {
+		t.Fatalf("claimFiles: %v", err)
+	}
+
+	if claim := string(files["apps/my-app.yaml"]); strings.Contains(claim, "ingress_auth") {
+		t.Errorf("claim renders ingress_auth:\n%s", claim)
 	}
 }
