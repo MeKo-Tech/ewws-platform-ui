@@ -159,15 +159,17 @@ templ docsClaimSection() {
 		<h3>Bootstrap im App-Repo</h3>
 		<p>
 			Beim Claim legt das Formular außerdem fehlende Standard-Dateien im App-Repo an:
-			PR-Titel-Check, release-please und <code>AGENTS.md</code>. Das geschieht ohne PR als
-			direkter Commit pro Datei auf den Default-Branch; Dateien, die es schon gibt, bleiben
-			unangetastet. Bei einem Repo aus dem Template existiert das meiste davon bereits.
+			PR-Titel-Check, release-please, <code>.sops.yaml</code> und <code>AGENTS.md</code>. Das
+			geschieht ohne PR als direkter Commit pro Datei auf den Default-Branch; Dateien, die es
+			schon gibt, bleiben unangetastet. Bei einem Repo aus dem Template existiert das meiste
+			davon bereits.
 		</p>
 		<p>
-			Fehlen <code>.sops.yaml</code>, <code>values.env</code> oder <code>values.sops.env</code>,
-			legt der Bootstrap auch diese an. Sie gehören zum alten Secret-Ablauf und werden nicht
-			mehr ausgewertet: <strong>keine Secrets dort eintragen</strong> und die Dateien wieder
-			löschen. Secrets laufen wie in <a href="#secrets">Abschnitt 6</a>.
+			Die <code>.sops.yaml</code> ist dieselbe, die <code>scripts/platform-secrets.sh init</code>
+			schreibt: eine Regel, die <code>secrets/&lt;stage&gt;.sops.yaml</code> auf
+			<code>sops-key-vibe</code> in <code>meko-vibe-vault</code> leitet. Secret-Dateien selbst legt
+			der Bootstrap nicht an, dafür braucht es Zugriff auf den Key Vault; die entstehen beim
+			ersten <code>just secrets-set</code> (<a href="#secrets">Abschnitt 6</a>).
 		</p>
 	</section>
 }

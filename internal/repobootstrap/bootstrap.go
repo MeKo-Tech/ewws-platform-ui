@@ -17,7 +17,11 @@ import (
 	gh "github.com/google/go-github/v68/github"
 )
 
-//go:embed templates
+// `all:` is required: a plain `templates` pattern skips dotfiles, so
+// `templates/.sops.yaml` was never embedded and the sops step always
+// failed with "template read".
+//
+//go:embed all:templates
 var templates embed.FS
 
 // Action describes what the bootstrap helper did. The Claim handler
@@ -48,8 +52,6 @@ func Run(ctx context.Context, client *gh.Client, owner, repo, slug string) []Act
 		ensureReleasePleaseConfig,
 		ensureReleasePleaseManifest,
 		ensureSopsConfig,
-		ensureValuesEnv,
-		ensureValuesSopsEnv,
 		ensureAgentsMarkdown,
 		ensureBranchProtectionMain,
 	}
@@ -71,6 +73,7 @@ func ensurePRTitleWorkflow(ctx context.Context, c *gh.Client, owner, repo, _ str
 		"chore: add Conventional-Commits PR-title check (platform-ui)",
 		"PR-title workflow",
 		nil,
+		".github/workflows/test-pr-title.yaml",
 	)
 }
 
@@ -81,6 +84,9 @@ func ensureReleasePleaseWorkflow(ctx context.Context, c *gh.Client, owner, repo,
 		"chore: add release-please workflow (platform-ui)",
 		"release-please workflow",
 		nil,
+		// go-react-template ships `.yaml`; a second `.yml` copy would cut
+		// every release twice.
+		".github/workflows/release-please.yaml",
 	)
 }
 
@@ -106,44 +112,23 @@ func ensureReleasePleaseManifest(ctx context.Context, c *gh.Client, owner, repo,
 	)
 }
 
-// ensureSopsConfig writes the standard `.sops.yaml` that pins the three
-// MeKo Azure Key Vault keys to the per-stage filename convention. Vibe
-// coders don't edit this file; the platform UI manages it.
+// ensureSopsConfig writes the `.sops.yaml` that go-react-template's
+// `scripts/platform-secrets.sh init` writes: one rule routing
+// `secrets/<stage>.sops.yaml` to `sops-key-vibe` in meko-vibe-vault, and
+// nothing else. `just secrets-set` refuses to encrypt unless that rule is
+// the first match, so an existing `.sops.yaml` is left alone — the script
+// tells the user what to fix.
+//
+// Bootstrap creates no `secrets/<stage>.sops.yaml` and no
+// `deploy/sealed/` file: encrypting needs Key Vault access and sealing
+// needs real values, both of which only the app author has. The
+// secrets tooling creates them on first use.
 func ensureSopsConfig(ctx context.Context, c *gh.Client, owner, repo, _ string) Action {
 	return ensureFile(ctx, c, owner, repo,
 		".sops.yaml",
 		"templates/.sops.yaml",
-		"chore: add .sops.yaml — MeKo Azure KV pinning (platform-ui)",
+		"chore: add .sops.yaml — route secrets/ to meko-vibe-vault (platform-ui)",
 		"sops config",
-		nil,
-	)
-}
-
-// ensureValuesEnv writes a commented stub `values.env`. Plain (non-secret)
-// app config goes here; per-stage overlays (`values.staging.env`,
-// `values.prod.env`) are optional and not bootstrapped — the vibe coder
-// adds them when needed.
-func ensureValuesEnv(ctx context.Context, c *gh.Client, owner, repo, _ string) Action {
-	return ensureFile(ctx, c, owner, repo,
-		"values.env",
-		"templates/values.env",
-		"chore: add values.env stub (platform-ui)",
-		"values.env (plain env)",
-		nil,
-	)
-}
-
-// ensureValuesSopsEnv writes the unencrypted scaffold for the sops-managed
-// secrets file. The header explicitly tells the vibe coder to run
-// `sops --encrypt --in-place values.sops.env` before committing real
-// secrets. We don't ship pre-encrypted content because the platform UI
-// doesn't have KV credentials.
-func ensureValuesSopsEnv(ctx context.Context, c *gh.Client, owner, repo, _ string) Action {
-	return ensureFile(ctx, c, owner, repo,
-		"values.sops.env",
-		"templates/values.sops.env",
-		"chore: add values.sops.env scaffold — encrypt before committing (platform-ui)",
-		"values.sops.env (encrypted env)",
 		nil,
 	)
 }
@@ -209,24 +194,34 @@ func ensureBranchProtectionMain(ctx context.Context, c *gh.Client, owner, repo, 
 // ensureFile creates `path` in the repo's default branch from an embedded
 // template, substituting placeholders. Skips if the file is already
 // present (we don't try to be smart about content drift — manual edits
-// win).
+// win). It also skips when one of `equivalents` exists, e.g. the `.yaml`
+// spelling of a workflow the template ships.
 func ensureFile(
 	ctx context.Context,
 	c *gh.Client,
 	owner, repo, path, templatePath, commitMsg, displayName string,
 	subs map[string]string,
+	equivalents ...string,
 ) Action {
 	a := Action{Name: displayName, Path: path}
 
-	// Does the file already exist?
-	if _, _, resp, err := c.Repositories.GetContents(ctx, owner, repo, path, nil); err == nil {
-		a.Status = StatusSkipped
-		return a
-	} else if !isNotFound(resp, err) {
-		a.Status = StatusFailed
-		a.Message = err.Error()
+	// Does the file (or an equivalent) already exist?
+	for _, p := range append([]string{path}, equivalents...) {
+		_, _, resp, err := c.Repositories.GetContents(ctx, owner, repo, p, nil)
+		if err == nil {
+			a.Path = p
+			a.Status = StatusSkipped
 
-		return a
+			return a
+		}
+
+		if !isNotFound(resp, err) {
+			a.Path = p
+			a.Status = StatusFailed
+			a.Message = err.Error()
+
+			return a
+		}
 	}
 
 	body, err := templates.ReadFile(templatePath)

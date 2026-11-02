@@ -28,7 +28,7 @@ Lives at `https://platform.apps.meko.work` (Tailscale-internal, behind Traefik).
 | --- | --- | --- |
 | `GET /` | anonymous | landing + dashboard of all apps, "Neue App" CTA |
 | `GET /app/{slug}` | anonymous | detail page (registry YAML + Argo CD status) |
-| `POST /app/{slug}/bootstrap` | session (401 without; no CSRF token) | re-runs the repo bootstrap (test-pr-title, release-please, branch protection) with the user's token; returns an HTMX result fragment |
+| `POST /app/{slug}/bootstrap` | session (401 without; no CSRF token) | re-runs the repo bootstrap (test-pr-title, release-please, `.sops.yaml` for `secrets/` → meko-vibe-vault, AGENTS.md, branch protection; never `values.env` or secret files) with the user's token; returns an HTMX result fragment |
 | `GET /claim` | session (anonymous → redirect to `/auth/login`) | claim form |
 | `POST /claim` | session + CSRF | opens the registry PR, bootstraps the repo, renders a success page linking the PR |
 | `GET /docs` | anonymous | onboarding + best-practice page |

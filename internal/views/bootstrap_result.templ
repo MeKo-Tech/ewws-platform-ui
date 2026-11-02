@@ -53,8 +53,9 @@ templ BootstrapButton(slug string, user *SessionUser) {
 			<p>
 				Schreibt die Standard-Workflows in das Source-Repo dieses Tenants:
 				<code>test-pr-title.yml</code>, <code>release-please.yml</code> +
-				<code>release-please-config.json</code> + Manifest, plus Branch-Protection
-				auf <code>main</code>. Idempotent — bereits vorhandene Files werden
+				<code>release-please-config.json</code> + Manifest, <code>.sops.yaml</code>
+				(<code>secrets/</code> → <code>meko-vibe-vault</code>) und <code>AGENTS.md</code>,
+				plus Branch-Protection auf <code>main</code>. Idempotent — bereits vorhandene Files werden
 				übersprungen, nicht überschrieben.
 			</p>
 			<button
