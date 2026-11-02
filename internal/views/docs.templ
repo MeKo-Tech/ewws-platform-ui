@@ -141,7 +141,7 @@ templ docsClaimSection() {
 				</tr>
 				<tr>
 					<td><code>sealed_secrets</code></td>
-					<td>Nur für <em>zusätzliche</em> Secrets mit einem anderen Namen als <code>&lt;slug&gt;-app</code> oder um <code>&lt;slug&gt;-app</code> auf einzelne Stages zu beschränken. <code>&lt;slug&gt;-app</code> selbst braucht keinen Eintrag, siehe <a href="#secrets">Abschnitt 6</a>.</td>
+					<td>Nur für <em>zusätzliche</em> Secrets mit einem anderen Namen als <code>&lt;slug&gt;-app</code> oder um explizite Referenzen auf <code>&lt;slug&gt;-app</code> per <code>stages</code> auf einzelne Stages zu beschränken. <code>&lt;slug&gt;-app</code> selbst braucht keinen Eintrag, siehe <a href="#secrets">Abschnitt 6</a>.</td>
 				</tr>
 				<tr>
 					<td><code>auth.client_ids</code></td>
@@ -259,8 +259,10 @@ templ docsSecretsSection() {
 		<p>
 			<code>sealed_secrets</code> im Claim brauchst du nur für <strong>zusätzliche</strong> Secrets mit
 			einem anderen Namen (weiterer Top-Level-Key in der SOPS-Datei, z.B. das Passwort einer
-			Datenbank neben der App) oder um <code>&lt;slug&gt;-app</code> per <code>stages</code> auf
-			einzelne Stages zu beschränken. Solche Secrets referenzierst du über
+			Datenbank neben der App) oder um explizite <code>env</code>/<code>env_from</code>-Referenzen auf
+			<code>&lt;slug&gt;-app</code> per <code>stages</code> auf einzelne Stages zu beschränken. Das
+			automatische Laden von <code>&lt;slug&gt;-app</code> bleibt davon unberührt; eine Stage ohne
+			Datei hat einfach kein solches Secret. Solche Secrets referenzierst du über
 			<code>env_from</code> oder <code>env</code>:
 		</p>
 		<pre><code>{ docsSealedSecretsSnippet() }</code></pre>
