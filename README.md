@@ -32,7 +32,7 @@ Lives at `https://platform.apps.meko.work` (Tailscale-internal, behind Traefik).
 | `GET /claim` | session (anonymous → redirect to `/auth/login`) | claim form |
 | `POST /claim` | session + CSRF | opens the registry PR, bootstraps the repo, renders a success page linking the PR |
 | `GET /docs` | anonymous | onboarding + best-practice page |
-| `GET /usage` | admin session (anonymous → redirect to `/auth/login`, non-admin → 403) | login activity per ewws-auth client_id (1/7/30 days), linked to registry apps via `auth.client_ids` |
+| `GET /usage` | admin session (anonymous → redirect to `/auth/login`, non-admin → 403) | login activity per ewws-auth client_id (1/7/30 days), linked to registry apps via `auth.client_ids` (and `app:<slug>` to the app with that slug); apps without login show the beacon visits from `GET /api/activity/apps` (Personen, anonyme Geräte, Aufrufe, 30 days) — without that endpoint (404) or on an error the plain list with a hint |
 | `GET /usage/{client_id}` | admin session (as above) | per-account activity of one client; `?issuer=&from=&to=` (YYYY-MM-DD, at most 366 days); `-` = logins without client_id |
 | `GET /auth/login` | — | starts GitHub OAuth |
 | `GET /auth/callback` | — | finishes GitHub OAuth, redirects to `/` |
@@ -75,7 +75,7 @@ time out after 3 s; the detail page renders regardless of ewws-auth.
 
 `/usage` signs in to ewws-auth as a machine account: it exchanges the
 Entra app credential at `POST /login/azure` (`client_credentials`) and
-calls `GET /api/activity/clients[/{client_id}]` with the resulting
+calls `GET /api/activity/clients[/{client_id}]` and `GET /api/activity/apps` with the resulting
 Bearer token. The token stays on the server — cached until shortly
 before expiry, never sent to the browser, never logged. The machine
 account needs an Entra app whose service principal holds the

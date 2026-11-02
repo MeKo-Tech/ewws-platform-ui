@@ -323,6 +323,12 @@ func TestBuildUsageOverview(t *testing.T) {
 			{Issuer: "ewws-auth", ClientID: "bridge-staging", Name: "Bridge", Last30d: window(5)},
 			{Issuer: "ewws-auth", ClientID: "idle", Name: "Idle"}, // empty 30d window
 			{Issuer: "ewws-auth", ClientID: "a/b c", Last30d: window(1)},
+			{
+				Issuer:   "ewws-auth",
+				ClientID: "app:zeta",
+				Last30d:  ewwsauth.ActivityWindow{Users: 2, Uses: 9},
+			},
+			{Issuer: "ewws-auth", ClientID: "app:gone"},
 		},
 	}
 
@@ -353,6 +359,8 @@ func TestBuildUsageOverview(t *testing.T) {
 		"bridge-prod",
 		"bridge-staging",
 		"a/b c",
+		"app:gone",
+		"app:zeta",
 		"idle",
 	}; !slices.Equal(
 		order,
@@ -379,8 +387,30 @@ func TestBuildUsageOverview(t *testing.T) {
 		t.Errorf("DetailURL = %q", got)
 	}
 
-	if !slices.Equal(o.NoLogin, []string{"alpha", "zeta"}) {
-		t.Errorf("NoLogin = %q", o.NoLogin)
+	// "app:<slug>" rows link to the registry app with that slug; a slug
+	// the registry does not know stays unlinked.
+	if r := byID["app:zeta"]; r.AppSlug != "zeta" || len(r.AppStages) != 0 || !r.Visits {
+		t.Errorf("app:zeta row = %+v", r)
+	}
+
+	if r := byID["app:gone"]; r.AppSlug != "" || !r.Visits {
+		t.Errorf("app:gone row = %+v", r)
+	}
+
+	if r := byID["bridge-prod"]; r.Visits {
+		t.Errorf("login row marked as visits: %+v", r)
+	}
+
+	wantNoLogin := []views.UsageNoLoginApp{
+		{Slug: "alpha", DetailURL: "/usage/app:alpha"},
+		{Slug: "zeta", DetailURL: "/usage/app:zeta"},
+	}
+	if !slices.Equal(o.NoLogin, wantNoLogin) {
+		t.Errorf("NoLogin = %+v, want %+v", o.NoLogin, wantNoLogin)
+	}
+
+	if o.VisitsOK || o.VisitsHint != "" {
+		t.Errorf("buildUsageOverview must not set visit state: %+v", o)
 	}
 
 	wantSilent := []views.UsageSilent{
@@ -413,5 +443,157 @@ func TestUsageRegistryFailureKeepsPage(t *testing.T) {
 
 	if rec := serveAs(t, h, adminUser, "/usage"); rec.Code != http.StatusOK {
 		t.Errorf("status %d, want 200", rec.Code)
+	}
+}
+
+// visitsAuth fakes ewws-auth with one "app:lpnt" client row and the given
+// reply for GET /api/activity/apps.
+func visitsAuth(t *testing.T, apps http.HandlerFunc) *ewwsauth.ActivityClient {
+	t.Helper()
+
+	ac, _ := fakeAuth(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/activity/clients":
+			_, _ = w.Write([]byte(`{"today":"2026-11-02","clients":[{"issuer":"ewws-auth",
+				"client_id":"app:lpnt","last_30d":{"users":2,"uses":7}}]}`))
+		case "/api/activity/apps":
+			apps(w, r)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	return ac
+}
+
+func noLoginApps(context.Context) ([]registry.App, error) {
+	return []registry.App{
+		{Slug: "lpnt"},
+		{Slug: "fuegekompass"},
+		{Slug: "bridge", Auth: &registry.Auth{ClientIDs: map[string]string{"prod": "b"}}},
+	}, nil
+}
+
+func TestUsageOverviewVisits(t *testing.T) {
+	ac := visitsAuth(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "days=30" {
+			t.Errorf("query = %q", r.URL.RawQuery)
+		}
+
+		_, _ = w.Write([]byte(`{"days":30,"apps":[
+			{"slug":"lpnt","accounts":2,"devices":4,"views":11,"last_seen_at":"2026-11-01T12:00:00Z"},
+			{"slug":"unknown","accounts":9,"devices":9,"views":9,"last_seen_at":null}]}`))
+	})
+
+	h := Usage{Activity: ac, Logger: discardLogger, FetchApps: noLoginApps}
+
+	o := h.overview(context.Background())
+	if o.State != views.UsageOK || !o.VisitsOK || o.VisitsDays != 30 || o.VisitsHint != "" {
+		t.Fatalf("overview = %+v", o)
+	}
+
+	want := []views.UsageNoLoginApp{
+		{Slug: "fuegekompass", DetailURL: "/usage/app:fuegekompass"},
+		{
+			Slug: "lpnt", Accounts: 2, Devices: 4, Views: 11,
+			LastSeenAt: time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC),
+			DetailURL:  "/usage/app:lpnt",
+		},
+	}
+	if !slices.Equal(o.NoLogin, want) {
+		t.Errorf("NoLogin = %+v, want %+v", o.NoLogin, want)
+	}
+
+	if len(o.Rows) != 1 || o.Rows[0].AppSlug != "lpnt" || !o.Rows[0].Visits {
+		t.Errorf("rows = %+v", o.Rows)
+	}
+}
+
+// ewws-auth without /api/activity/apps (404) or failing on it must leave
+// the page as before: OK state, plain "kein Login" list, a hint.
+func TestUsageOverviewVisitsFallback(t *testing.T) {
+	cases := []struct {
+		name     string
+		apps     http.HandlerFunc
+		wantHint string
+	}{
+		{
+			"not deployed",
+			replyStatus(http.StatusNotFound, "404 page not found\n"),
+			visitsNotFoundHint,
+		},
+		{"forbidden", replyStatus(http.StatusForbidden, `{"errors":[]}`), visitsForbiddenHint},
+		{"internal", replyStatus(http.StatusInternalServerError, "boom"), visitsErrorHint},
+		{"bad json", replyStatus(http.StatusOK, "{"), visitsErrorHint},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := Usage{
+				Activity:  visitsAuth(t, tc.apps),
+				Logger:    discardLogger,
+				FetchApps: noLoginApps,
+			}
+
+			o := h.overview(context.Background())
+			if o.State != views.UsageOK || o.VisitsOK || o.VisitsHint != tc.wantHint {
+				t.Fatalf("overview = %+v", o)
+			}
+
+			if len(o.NoLogin) != 2 || len(o.Rows) != 1 || o.Rows[0].AppSlug != "lpnt" {
+				t.Errorf("overview = %+v", o)
+			}
+
+			rec := serveAs(t, h, adminUser, "/usage")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status %d, want 200", rec.Code)
+			}
+
+			if body := rec.Body.String(); !strings.Contains(body, tc.wantHint) ||
+				!strings.Contains(body, `href="/app/fuegekompass"`) {
+				t.Error("page lacks the hint or the plain no-login list")
+			}
+		})
+	}
+}
+
+func TestUsageOverviewSkipsVisitsWithoutNoLoginApps(t *testing.T) {
+	ac := visitsAuth(t, func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("/api/activity/apps must not be called without apps lacking login")
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	o := Usage{
+		Activity:  ac,
+		Logger:    discardLogger,
+		FetchApps: noApps,
+	}.overview(
+		context.Background(),
+	)
+	if o.State != views.UsageOK || o.VisitsHint != "" {
+		t.Errorf("overview = %+v", o)
+	}
+}
+
+func TestUsageDetailLinksVisitsClient(t *testing.T) {
+	var gotPath string
+
+	ac, _ := fakeAuth(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte(`{"issuer":"ewws-auth","client_id":"app:lpnt","from":"2026-10-04",
+			"to":"2026-11-02","accounts":[]}`))
+	})
+
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	d := UsageClient{Activity: ac, Logger: discardLogger, FetchApps: noLoginApps}.
+		detail(context.Background(), "app:lpnt", "", "", "", now)
+
+	if gotPath != "/api/activity/clients/app:lpnt" {
+		t.Errorf("path = %q", gotPath)
+	}
+
+	if d.State != views.UsageOK || d.AppSlug != "lpnt" || d.FormAction != "/usage/app:lpnt" {
+		t.Errorf("detail = %+v", d)
 	}
 }

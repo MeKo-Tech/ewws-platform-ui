@@ -77,7 +77,7 @@ func TestUsageOKRowsAndSections(t *testing.T) {
 			DetailURL:  "/usage/abc-123?issuer=ewws-auth",
 		}},
 		Silent:  []UsageSilent{{AppSlug: "quiet", Stage: "prod", ClientID: "q-1"}},
-		NoLogin: []string{"public-app"},
+		NoLogin: []UsageNoLoginApp{{Slug: "public-app", DetailURL: "/usage/app:public-app"}},
 	}
 	html := renderComponent(t, Usage(adminProps, o))
 
@@ -96,6 +96,74 @@ func TestUsageOKRowsAndSections(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Errorf("overview lacks %q", want)
 		}
+	}
+}
+
+func TestUsageNoLoginVisits(t *testing.T) {
+	o := UsageOverview{
+		State: UsageOK,
+		Rows: []UsageRow{{
+			Issuer:    "ewws-auth",
+			ClientID:  "app:fuegekompass",
+			AppSlug:   "fuegekompass",
+			Visits:    true,
+			Last30d:   UsageWindow{Users: 3, Logins: 987},
+			DetailURL: "/usage/app:fuegekompass?issuer=ewws-auth",
+		}},
+		NoLogin: []UsageNoLoginApp{
+			{
+				Slug: "fuegekompass", Accounts: 3, Devices: 5, Views: 42,
+				LastSeenAt: time.Date(2026, 10, 30, 9, 15, 0, 0, time.UTC),
+				DetailURL:  "/usage/app:fuegekompass",
+			},
+			{Slug: "lpnt", DetailURL: "/usage/app:lpnt"},
+		},
+		VisitsOK:   true,
+		VisitsDays: 30,
+	}
+	html := renderComponent(t, Usage(adminProps, o))
+
+	for _, want := range []string{
+		"ohne Login",
+		"Personen",
+		"anonyme Geräte",
+		"Aufrufe",
+		`href="/usage/app:fuegekompass"`,
+		">5<",
+		">42<",
+		"30.10.2026 10:15",
+		`href="/app/lpnt"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("overview lacks %q", want)
+		}
+	}
+
+	if strings.Contains(html, ">987<") {
+		t.Error("a visits row must not show logins")
+	}
+
+	if strings.Contains(html, `href="/usage/app:lpnt"`) {
+		t.Error("an app without persons must not link the drill-down")
+	}
+}
+
+func TestUsageNoLoginVisitsHint(t *testing.T) {
+	o := UsageOverview{
+		State:      UsageOK,
+		NoLogin:    []UsageNoLoginApp{{Slug: "lpnt", DetailURL: "/usage/app:lpnt"}},
+		VisitsHint: "Aufrufzahlen fehlen.",
+	}
+	html := renderComponent(t, Usage(adminProps, o))
+
+	for _, want := range []string{"Aufrufzahlen fehlen.", `href="/app/lpnt"`, "kein Login"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("overview lacks %q", want)
+		}
+	}
+
+	if strings.Contains(html, "anonyme Geräte") {
+		t.Error("visit table must not render without visit numbers")
 	}
 }
 
