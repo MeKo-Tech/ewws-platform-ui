@@ -17,6 +17,10 @@ package registry
 // This mirrors the registry PR that makes tags/<slug>/<stage>.yaml the only
 // source of the image tag; refresh from the registry once it has landed.
 //
+// Second local edit: auth.client_ids and definitions.client_id (lowercase
+// UUID only) as on the registry branch feat/registry-client-ids (PR #385,
+// commit 91159a7dc5965c956693d3e6e8038a17bd2dbac2), descriptions shortened.
+//
 // Golden files are regenerated with
 //
 //	go test ./internal/registry -run TestClaimGolden -update
@@ -166,6 +170,8 @@ func bothInput() ClaimInput {
 func fullInput() ClaimInput {
 	in := bothInput()
 	in.AuthScope = "ewlt"
+	in.ClientIDStaging = "0f8b2c4e-6a1d-4e3b-9c7a-2d5f8e1b3a60"
+	in.ClientIDProd = "7c3e9a15-2b4f-4d6e-8a1c-5f9b0e2d4c71"
 	in.Websocket = true
 	in.SharedSecrets = []string{"smtp-relay", "app-db", "app-api"}
 	in.Backend.Port = 8080
@@ -194,6 +200,11 @@ func claimCases() []struct {
 } {
 	withAuth := frontendOnlyInput()
 	withAuth.AuthScope = "material.order"
+
+	// client_ids without a scope: an auth block the form writes for every
+	// new claim.
+	withClientIDs := frontendOnlyInput()
+	withClientIDs.NewClientIDs()
 
 	withSecrets := bothInput()
 	withSecrets.SharedSecrets = []string{"smtp-relay", "ldap-bind", "app-db"}
@@ -242,6 +253,7 @@ func claimCases() []struct {
 		{"backend-frontend", bothInput()},
 		{"backend-frontend-full", fullInput()},
 		{"with-auth-scope", withAuth},
+		{"with-client-ids", withClientIDs},
 		{"with-secrets", withSecrets},
 		{"prod-disabled", prodDisabled},
 		{"staging-disabled", stagingDisabled},
@@ -659,6 +671,14 @@ func TestValidateRejects(t *testing.T) {
 		"bad auth scope": {
 			func(c *ClaimInput) { c.AuthScope = "-x" },
 			"auth.scope",
+		},
+		"uppercase client_id": {
+			func(c *ClaimInput) { c.ClientIDStaging = "0F8B2C4E-6A1D-4E3B-9C7A-2D5F8E1B3A60" },
+			"auth.client_ids.staging",
+		},
+		"named client_id": {
+			func(c *ClaimInput) { c.ClientIDProd = "my-app" },
+			"auth.client_ids.prod",
 		},
 		"missing image repository": {
 			func(c *ClaimInput) { c.Frontend.ImageRepository = "" },

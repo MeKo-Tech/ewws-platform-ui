@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/registry"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/views"
+	"gopkg.in/yaml.v3"
 )
 
 func renderClaimForm(t *testing.T, prev views.ClaimFormState) string {
@@ -386,5 +388,65 @@ func TestParseClaimFormIgnoresIngressAuth(t *testing.T) {
 
 	if claim := string(files["apps/my-app.yaml"]); strings.Contains(claim, "ingress_auth") {
 		t.Errorf("claim renders ingress_auth:\n%s", claim)
+	}
+}
+
+// A new claim carries its own ewws-auth client_id per stage: two distinct
+// lowercase UUIDs under auth.client_ids, also without a scope.
+func TestClaimFilesGeneratesClientIDs(t *testing.T) {
+	in, _, err := parseClaimForm(baseClaimForm(), testUser)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if err := in.Validate(nil); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+
+	files, err := claimFiles(in)
+	if err != nil {
+		t.Fatalf("claimFiles: %v", err)
+	}
+
+	claim := files["apps/my-app.yaml"]
+
+	var doc struct {
+		Auth struct {
+			Scope     string `yaml:"scope"`
+			ClientIDs struct {
+				Staging string `yaml:"staging"`
+				Prod    string `yaml:"prod"`
+			} `yaml:"client_ids"`
+		} `yaml:"auth"`
+	}
+	if err := yaml.Unmarshal(claim, &doc); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, claim)
+	}
+
+	uuidRe := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+	ids := doc.Auth.ClientIDs
+	for stage, id := range map[string]string{"staging": ids.Staging, "prod": ids.Prod} {
+		if !uuidRe.MatchString(id) {
+			t.Errorf("auth.client_ids.%s = %q, want a lowercase UUID\n%s", stage, id, claim)
+		}
+	}
+
+	if ids.Staging == ids.Prod {
+		t.Errorf("staging and prod share client_id %q, want one per stage", ids.Staging)
+	}
+
+	if doc.Auth.Scope != "" {
+		t.Errorf("auth.scope = %q, want none without a scope in the form", doc.Auth.Scope)
+	}
+
+	// A second claim never reuses the first one's ids.
+	again, _, err := parseClaimForm(baseClaimForm(), testUser)
+	if err != nil {
+		t.Fatalf("parse again: %v", err)
+	}
+
+	if again.ClientIDStaging == ids.Staging || again.ClientIDProd == ids.Prod {
+		t.Error("a second claim reused a client_id")
 	}
 }

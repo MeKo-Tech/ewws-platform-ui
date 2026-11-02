@@ -24,6 +24,11 @@ var (
 	secretKeyRegex    = mustCompileSchema(`^[-._a-zA-Z0-9]+$`)
 	authScopeRegex    = mustCompileSchema(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 	sharedSecretRegex = mustCompileSchema(`^[a-z][a-z0-9-]{1,30}[a-z0-9]$`)
+
+	// ClientIDRegex is the registry's definitions.client_id: a lowercase UUID.
+	ClientIDRegex = mustCompileSchema(
+		`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
+	)
 )
 
 const (
@@ -117,6 +122,15 @@ func (c *ClaimInput) Validate(reserved *ReservedSlugs) error {
 				"auth.scope %q must match ^[A-Za-z0-9][A-Za-z0-9_.-]*$ (at most %d characters)",
 				c.AuthScope, maxAuthScopeLen,
 			)
+		}
+	}
+
+	for _, id := range []struct{ field, value string }{
+		{"auth.client_ids.staging", c.ClientIDStaging},
+		{"auth.client_ids.prod", c.ClientIDProd},
+	} {
+		if id.value != "" && !ClientIDRegex.MatchString(id.value) {
+			return fmt.Errorf("%s %q must be a lowercase UUID", id.field, id.value)
 		}
 	}
 
