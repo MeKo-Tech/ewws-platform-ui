@@ -150,6 +150,59 @@ func TestActivityClientsAndClient(t *testing.T) {
 	}
 }
 
+func TestActivityApps(t *testing.T) {
+	var tokenCalls atomic.Int32
+
+	srv := activityServer(t, &tokenCalls, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/activity/apps" || r.URL.RawQuery != "days=30" {
+			t.Errorf("request = %s?%s", r.URL.Path, r.URL.RawQuery)
+		}
+
+		_, _ = w.Write([]byte(`{"days":30,"apps":[
+			{"slug":"fuegekompass","accounts":3,"devices":5,"views":42,
+			 "last_seen_at":"2026-10-30T09:15:00Z"},
+			{"slug":"lpnt","accounts":0,"devices":0,"views":0,"last_seen_at":null}]}`))
+	})
+
+	res, err := NewActivityClient(srv.URL, fakeClientID, fakeSecret).
+		Apps(context.Background(), 30)
+	if err != nil {
+		t.Fatalf("Apps: %v", err)
+	}
+
+	if res.Days != 30 || len(res.Apps) != 2 {
+		t.Fatalf("Apps = %+v", res)
+	}
+
+	a := res.Apps[0]
+	if a.Slug != "fuegekompass" || a.Accounts != 3 || a.Devices != 5 || a.Views != 42 ||
+		a.LastSeenAt == nil ||
+		!a.LastSeenAt.Equal(time.Date(2026, 10, 30, 9, 15, 0, 0, time.UTC)) {
+		t.Errorf("app = %+v", a)
+	}
+
+	if res.Apps[1].LastSeenAt != nil {
+		t.Error("null last_seen_at must decode to nil")
+	}
+}
+
+func TestActivityAppsNotFound(t *testing.T) {
+	var tokenCalls atomic.Int32
+
+	srv := activityServer(t, &tokenCalls, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("404 page not found\n"))
+	})
+
+	_, err := NewActivityClient(srv.URL, fakeClientID, fakeSecret).
+		Apps(context.Background(), 0)
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusNotFound {
+		t.Fatalf("err = %v, want *APIError with status 404", err)
+	}
+}
+
 func TestActivityErrors(t *testing.T) {
 	cases := []struct {
 		name     string

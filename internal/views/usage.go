@@ -39,9 +39,12 @@ type UsageRow struct {
 	// ("staging", "prod").
 	AppSlug   string
 	AppStages []string
-	Last1d    UsageWindow
-	Last7d    UsageWindow
-	Last30d   UsageWindow
+	// Visits marks an "app:<slug>" row: beacon-recorded visits of an app
+	// without login, counted as uses (its logins are always 0).
+	Visits  bool
+	Last1d  UsageWindow
+	Last7d  UsageWindow
+	Last30d UsageWindow
 	// DetailURL is the server-built link to the per-client page,
 	// e.g. "/usage/abc?issuer=ewws-auth".
 	DetailURL string
@@ -53,12 +56,35 @@ type UsageOverview struct {
 	Message string // set for UsageInvalid / UsageError
 	Today   string // YYYY-MM-DD (UTC) as reported by ewws-auth
 	Rows    []UsageRow
-	// NoLogin lists registry apps without auth.client_ids ("kein Login").
-	// Deliberate for many apps — rendered neutrally, not as an error.
-	NoLogin []string
+	// NoLogin lists registry apps without auth.client_ids ("kein Login"),
+	// sorted by slug. Deliberate for many apps — rendered neutrally, not
+	// as an error.
+	NoLogin []UsageNoLoginApp
+	// VisitsOK is true when ewws-auth delivered the beacon visits of the
+	// apps without login (GET /api/activity/apps); the NoLogin entries
+	// then carry numbers. False renders the plain list plus VisitsHint.
+	VisitsOK bool
+	// VisitsDays is the window of the visit numbers, in days.
+	VisitsDays int
+	// VisitsHint explains why the visit numbers are missing ("" when
+	// VisitsOK or when there are no apps without login).
+	VisitsHint string
 	// Silent lists registry client_ids that have no activity at all in
 	// ewws-auth's 30-day window.
 	Silent []UsageSilent
+}
+
+// UsageNoLoginApp is a registry app without auth.client_ids together with
+// the visits ewws-auth's beacon recorded for it (zero when none).
+type UsageNoLoginApp struct {
+	Slug       string
+	Accounts   int       // distinct identified persons ("Personen")
+	Devices    int       // distinct anonymous devices ("anonyme Geräte")
+	Views      int       // all recorded visits ("Aufrufe")
+	LastSeenAt time.Time // zero = never seen
+	// DetailURL is the per-person drill-down, the client detail of
+	// "app:<slug>", e.g. "/usage/app:fuegekompass".
+	DetailURL string
 }
 
 // UsageSilent is a registry client_id ewws-auth reported no activity for.

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/config"
@@ -27,6 +28,19 @@ const (
 	usageForbiddenMessage = "Der Maschinen-Account der Plattform-UI hat in ewws-auth " +
 		"nicht die Berechtigung auth:activity:r."
 	usageErrorMessage = "ewws-auth ist nicht erreichbar oder hat mit einem Fehler geantwortet."
+
+	// usageVisitsDays is the window of the "kein Login" visit numbers,
+	// matching the 30-day window of the login table.
+	usageVisitsDays = 30
+	// visitsClientPrefix marks the client_id under which ewws-auth's
+	// beacon records the visits of an app without login: "app:<slug>".
+	visitsClientPrefix = "app:"
+
+	visitsNotFoundHint = "Aufrufzahlen für Apps ohne Login liefert diese ewws-auth-Version " +
+		"noch nicht (/api/activity/apps fehlt)."
+	visitsForbiddenHint = "Der Maschinen-Account darf die Aufrufzahlen für Apps ohne Login " +
+		"nicht lesen (auth:activity:r)."
+	visitsErrorHint = "Aufrufzahlen für Apps ohne Login konnten nicht geladen werden."
 )
 
 // FetchAppsFunc loads the registry apps; tests stub it.
@@ -90,8 +104,73 @@ func (h Usage) overview(ctx context.Context) views.UsageOverview {
 	}
 
 	apps := loadRegistryApps(ctx, h.Logger, h.Cfg, h.FetchApps)
+	o := buildUsageOverview(res, apps)
 
-	return buildUsageOverview(res, apps)
+	if len(o.NoLogin) > 0 {
+		visits, err := h.Activity.Apps(ctx, usageVisitsDays)
+		if err != nil {
+			o.VisitsHint = visitsHint(ctx, h.Logger, err)
+		} else {
+			applyVisits(&o, visits)
+		}
+	}
+
+	return o
+}
+
+// visitsHint maps a failed GET /api/activity/apps to the hint shown
+// above the plain "kein Login" list. A 404 is expected until ewws-auth
+// ships the endpoint and is not logged as a warning.
+func visitsHint(ctx context.Context, logger *slog.Logger, err error) string {
+	var apiErr *ewwsauth.APIError
+
+	notFound := errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound
+
+	if logger != nil {
+		level := slog.LevelWarn
+		if notFound {
+			level = slog.LevelInfo
+		}
+
+		logger.Log(ctx, level, "usage overview: ewws-auth app visits",
+			slog.Any("err", err))
+	}
+
+	switch {
+	case notFound:
+		return visitsNotFoundHint
+	case errors.Is(err, ewwsauth.ErrForbidden):
+		return visitsForbiddenHint
+	default:
+		return visitsErrorHint
+	}
+}
+
+// applyVisits copies the beacon numbers onto the "kein Login" apps.
+// Slugs ewws-auth reports that are not among them are ignored.
+func applyVisits(o *views.UsageOverview, res *ewwsauth.AppsResult) {
+	bySlug := make(map[string]ewwsauth.AppVisits, len(res.Apps))
+	for _, a := range res.Apps {
+		bySlug[a.Slug] = a
+	}
+
+	for i := range o.NoLogin {
+		a, ok := bySlug[o.NoLogin[i].Slug]
+		if !ok {
+			continue
+		}
+
+		o.NoLogin[i].Accounts = a.Accounts
+		o.NoLogin[i].Devices = a.Devices
+		o.NoLogin[i].Views = a.Views
+
+		if a.LastSeenAt != nil {
+			o.NoLogin[i].LastSeenAt = *a.LastSeenAt
+		}
+	}
+
+	o.VisitsOK = true
+	o.VisitsDays = cmp.Or(res.Days, usageVisitsDays)
 }
 
 func (h UsageClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -190,9 +269,7 @@ func (h UsageClient) detail(
 
 	if clientID != "" {
 		apps := loadRegistryApps(ctx, h.Logger, h.Cfg, h.FetchApps)
-		if links := clientLinks(apps)[clientID]; len(links) > 0 {
-			d.AppSlug = links[0].slug
-		}
+		d.AppSlug, _ = linkClient(clientLinks(apps), registrySlugs(apps), clientID)
 	}
 
 	return d
@@ -331,6 +408,48 @@ func clientLinks(apps []registry.App) map[string][]clientLink {
 	return out
 }
 
+func registrySlugs(apps []registry.App) map[string]bool {
+	out := make(map[string]bool, len(apps))
+	for _, a := range apps {
+		out[a.Slug] = true
+	}
+
+	return out
+}
+
+// linkClient resolves the registry app a client_id belongs to: the
+// first app naming it in auth.client_ids (with the stages it is named
+// for), else — for "app:<slug>", the beacon visits of an app without
+// login — the registry app with that slug (no stages). "" when neither
+// applies.
+func linkClient(
+	links map[string][]clientLink,
+	slugs map[string]bool,
+	clientID string,
+) (slug string, stages []string) {
+	if clientID == "" {
+		return "", nil
+	}
+
+	if l := links[clientID]; len(l) > 0 {
+		slug = l[0].slug
+
+		for _, x := range l {
+			if x.slug == slug {
+				stages = append(stages, x.stage)
+			}
+		}
+
+		return slug, stages
+	}
+
+	if s, ok := strings.CutPrefix(clientID, visitsClientPrefix); ok && slugs[s] {
+		return s, nil
+	}
+
+	return "", nil
+}
+
 func compareLinks(a, b clientLink) int {
 	return cmp.Or(
 		cmp.Compare(a.slug, b.slug),
@@ -354,11 +473,13 @@ func stageRank(stage string) int {
 // overview model:
 //   - each row gets the registry app (and its stages) naming its client_id;
 //     should several apps name the same id, the first slug wins;
+//   - "app:<slug>" rows (beacon visits) link to the app with that slug;
 //   - NoLogin lists apps without any auth.client_ids;
 //   - Silent lists registry client_ids without 30-day activity — no row
 //     at all, or only rows whose 30-day window is empty.
 func buildUsageOverview(res *ewwsauth.ClientsResult, apps []registry.App) views.UsageOverview {
 	links := clientLinks(apps)
+	slugs := registrySlugs(apps)
 	active := map[string]bool{}
 
 	o := views.UsageOverview{State: views.UsageOK, Today: res.Today}
@@ -380,15 +501,8 @@ func buildUsageOverview(res *ewwsauth.ClientsResult, apps []registry.App) views.
 				"?issuer=" + url.QueryEscape(c.Issuer),
 		}
 
-		if l := links[c.ClientID]; c.ClientID != "" && len(l) > 0 {
-			row.AppSlug = l[0].slug
-
-			for _, x := range l {
-				if x.slug == row.AppSlug {
-					row.AppStages = append(row.AppStages, x.stage)
-				}
-			}
-		}
+		row.AppSlug, row.AppStages = linkClient(links, slugs, c.ClientID)
+		row.Visits = strings.HasPrefix(c.ClientID, visitsClientPrefix)
 
 		o.Rows = append(o.Rows, row)
 	}
@@ -404,11 +518,16 @@ func buildUsageOverview(res *ewwsauth.ClientsResult, apps []registry.App) views.
 
 	for _, a := range apps {
 		if a.Auth == nil || !hasClientID(a.Auth.ClientIDs) {
-			o.NoLogin = append(o.NoLogin, a.Slug)
+			o.NoLogin = append(o.NoLogin, views.UsageNoLoginApp{
+				Slug:      a.Slug,
+				DetailURL: "/usage/" + url.PathEscape(visitsClientPrefix+a.Slug),
+			})
 		}
 	}
 
-	slices.Sort(o.NoLogin)
+	slices.SortFunc(o.NoLogin, func(a, b views.UsageNoLoginApp) int {
+		return cmp.Compare(a.Slug, b.Slug)
+	})
 
 	for id, l := range links {
 		if active[id] {

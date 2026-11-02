@@ -23,7 +23,7 @@ templ Usage(props PageProps, o UsageOverview) {
 				@usageSilentSection(o.Silent)
 			}
 			if len(o.NoLogin) > 0 {
-				@usageNoLoginSection(o.NoLogin)
+				@usageNoLoginSection(o)
 			}
 		}
 	}
@@ -88,6 +88,9 @@ templ usageOverviewTable(rows []UsageRow) {
 							if len(r.AppStages) > 0 {
 								<small class="muted">{ usageStages(r.AppStages) }</small>
 							}
+							if r.Visits {
+								<small class="muted">ohne Login</small>
+							}
 						} else if r.Name != "" {
 							{ r.Name }
 						} else {
@@ -102,18 +105,24 @@ templ usageOverviewTable(rows []UsageRow) {
 					</td>
 					<td><a class="mono" href={ templ.URL(r.DetailURL) }>{ usageClientLabel(r.ClientID) }</a></td>
 					<td>{ r.Issuer }</td>
-					@usageWindowCells(r.Last1d)
-					@usageWindowCells(r.Last7d)
-					@usageWindowCells(r.Last30d)
+					@usageWindowCells(r.Last1d, r.Visits)
+					@usageWindowCells(r.Last7d, r.Visits)
+					@usageWindowCells(r.Last30d, r.Visits)
 				</tr>
 			}
 		</tbody>
 	</table>
 }
 
-templ usageWindowCells(w UsageWindow) {
+// usageWindowCells renders Nutzer and Logins of one window; a visits row
+// (app without login) has no logins, so that cell shows "—".
+templ usageWindowCells(w UsageWindow, visits bool) {
 	<td class="num">{ strconv.Itoa(w.Users) }</td>
-	<td class="num">{ strconv.Itoa(w.Logins) }</td>
+	if visits {
+		<td class="num muted" title="App ohne Login – Aufrufe stehen unter „kein Login“">—</td>
+	} else {
+		<td class="num">{ strconv.Itoa(w.Logins) }</td>
+	}
 }
 
 templ usageSilentSection(silent []UsageSilent) {
@@ -141,18 +150,56 @@ templ usageSilentSection(silent []UsageSilent) {
 	</section>
 }
 
-templ usageNoLoginSection(slugs []string) {
+templ usageNoLoginSection(o UsageOverview) {
 	<section class="detail-section">
 		<h2>kein Login</h2>
 		<div class="alert alert--info" role="note">
 			Diese Apps nennen keine <code>auth.client_ids</code> im Claim. Für viele Apps ist das
 			gewollt (öffentlich oder ohne Anmeldung) — das ist kein Fehler.
 		</div>
-		<ul class="usage-slugs">
-			for _, slug := range slugs {
-				<li><a href={ templ.URL("/app/" + slug) }>{ slug }</a></li>
+		if o.VisitsOK {
+			<p class="muted">
+				Aufrufe der letzten { strconv.Itoa(o.VisitsDays) } Tage, von ewws-auth per Beacon erfasst:
+				Personen sind erkannte Accounts, anonyme Geräte Aufrufe ohne erkannte Anmeldung.
+			</p>
+			<table class="tenants-table usage-table">
+				<thead>
+					<tr>
+						<th>App</th>
+						<th class="num">Personen</th>
+						<th class="num">anonyme Geräte</th>
+						<th class="num">Aufrufe</th>
+						<th>zuletzt gesehen</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, a := range o.NoLogin {
+						<tr class="tenant-row">
+							<td><a href={ templ.URL("/app/" + a.Slug) }>{ a.Slug }</a></td>
+							<td class="num">
+								if a.Accounts > 0 {
+									<a href={ templ.URL(a.DetailURL) } title="Personen anzeigen">{ strconv.Itoa(a.Accounts) }</a>
+								} else {
+									0
+								}
+							</td>
+							<td class="num">{ strconv.Itoa(a.Devices) }</td>
+							<td class="num">{ strconv.Itoa(a.Views) }</td>
+							<td>{ fmtUsageTime(a.LastSeenAt) }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		} else {
+			if o.VisitsHint != "" {
+				<p class="muted" role="status">{ o.VisitsHint }</p>
 			}
-		</ul>
+			<ul class="usage-slugs">
+				for _, a := range o.NoLogin {
+					<li><a href={ templ.URL("/app/" + a.Slug) }>{ a.Slug }</a></li>
+				}
+			</ul>
+		}
 	</section>
 }
 

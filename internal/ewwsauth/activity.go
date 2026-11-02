@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -157,6 +158,40 @@ type ClientResult struct {
 	From       string            `json:"from"`
 	To         string            `json:"to"`
 	Accounts   []AccountActivity `json:"accounts"`
+}
+
+// AppVisits is the beacon-recorded use of one vibe app without login
+// (GET /api/activity/apps).
+type AppVisits struct {
+	Slug       string     `json:"slug"`
+	Accounts   int        `json:"accounts"` // distinct identified persons
+	Devices    int        `json:"devices"`  // distinct anonymous devices
+	Views      int        `json:"views"`    // all recorded visits
+	LastSeenAt *time.Time `json:"last_seen_at"`
+}
+
+// AppsResult is the reply of GET /api/activity/apps.
+type AppsResult struct {
+	Days int         `json:"days"`
+	Apps []AppVisits `json:"apps"`
+}
+
+// Apps returns the beacon-recorded visits of apps without login over the
+// last days days (ewws-auth accepts 1..365; 0 leaves its default of 30).
+// An ewws-auth without the endpoint answers 404, i.e. an *APIError with
+// Status 404.
+func (c *ActivityClient) Apps(ctx context.Context, days int) (*AppsResult, error) {
+	q := url.Values{}
+	if days > 0 {
+		q.Set("days", strconv.Itoa(days))
+	}
+
+	var out AppsResult
+	if err := c.get(ctx, "/api/activity/apps", q, &out); err != nil {
+		return nil, err
+	}
+
+	return &out, nil
 }
 
 // Clients returns the per-client activity of the last 1/7/30 days.
