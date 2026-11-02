@@ -31,8 +31,13 @@ func TestDocsDescribesCurrentFlow(t *testing.T) {
 		"meko-vibe-vault",
 		"sealed_secrets",
 		"auth.client_ids",
-		"oidcPublicClients",
-		"sync-tagger-secret-repos.sh",
+		"sync-auth-clients",
+		"EWWS_AUTH_CLIENT_ID",
+		"EWWS_AUTH_ISSUER",
+		"https://login.ewws.meko.dev",
+		"https://login.meko.work",
+		"&lt;slug&gt;-app",
+		"sync-tagger-secret-repos",
 		"vibe-app-repos",
 		"resource_exception",
 		"@MeKo-Tech/ewws",
@@ -60,6 +65,10 @@ func TestDocsDropsRetiredFlow(t *testing.T) {
 		"image-updater",
 		"ExternalSecret",
 		"values.staging.sops.env",
+		// Pre-registry auth: hand-registered clients and a hand-set issuer.
+		"auth.ewws.meko",
+		"deploy-app.yml",
+		"secrets-set &lt;stage&gt; &lt;name&gt;",
 	} {
 		if strings.Contains(html, unwanted) {
 			t.Errorf("docs page still mentions %q", unwanted)

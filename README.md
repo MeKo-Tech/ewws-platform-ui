@@ -92,11 +92,13 @@ openssl rand -base64 32
 
 ## Operations
 
-Reviewing and approving a claim PR is more than merging it: the app also
-needs its own ewws-auth client, access to the tagger key
-(`EWWS_REGISTRY_TAGGER_PRIVATE_KEY`), and an entry in the `vibe-app-repos`
-ruleset. The admin runbook (German) covers every step, including withdrawing
-an app:
+Reviewing and approving a claim PR is more than merging it: the repository
+also needs an entry in the `vibe-app-repos` ruleset. The app's ewws-auth
+clients (`auth.client_ids`) and its access to the tagger key
+(`EWWS_REGISTRY_TAGGER_PRIVATE_KEY`) follow from the merge: the registry
+workflows `sync-auth-clients` and `sync-tagger-secret-repos` set them up, no
+ewws-auth PR needed. The admin runbook (German) covers every step, including
+withdrawing an app:
 [Neue Vibe-App freischalten](https://github.com/MeKo-Tech/ewws-wiki/blob/main/02_Softwareentwicklung/02_Tech/08_App-Plattform/neue_vibe_app_freischalten.md)
 (ewws-wiki).
 

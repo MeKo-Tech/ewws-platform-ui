@@ -129,7 +129,8 @@ templ Claim(page PageProps, props ClaimProps) {
 						value={ props.PreviousValues.AuthScope }
 					/>
 					<small>
-						Name des ewws-auth-Scopes, mit dem sich Nutzer in der App anmelden. Leer lassen, wenn die App kein Login über ewws-auth braucht.
+						Name des ewws-auth-Scopes der App. Verknüpft die App nur in dieser UI mit dem Scope und vergibt keine Rechte.
+						Für den Login selbst trägst du im PR <code>auth.client_ids</code> (eine neue UUID pro Stage) ein.
 						Siehe <a href={ templ.SafeURL(onboardingAuthURL) }>Onboarding: Login über ewws-auth</a>.
 					</small>
 				</label>
@@ -149,7 +150,8 @@ templ Claim(page PageProps, props ClaimProps) {
 				<legend>Secrets</legend>
 				<p class="claim-warning">
 					<strong>Nur Secret-Namen — niemals Secret-Werte eintragen.</strong>
-					App-eigene Secrets kommen als SealedSecrets (<code>sealed_secrets</code> im Claim); das Formular setzt sie nicht, ergänze sie im PR.
+					App-eigene Secrets kommen als SealedSecret <code>&lt;slug&gt;-app</code> aus dem App-Repo; das lädt die Plattform ohne Claim-Eintrag ins Backend.
+					Nur zusätzliche Secrets mit anderem Namen gehören unter <code>sealed_secrets</code>; das Formular setzt sie nicht, ergänze sie im PR.
 					Siehe <a href={ templ.SafeURL(secretsGuideURL) }>Secrets-Leitfaden</a> und
 					<a href={ templ.SafeURL(onboardingSecrets) }>Onboarding: Secrets</a>.
 				</p>
