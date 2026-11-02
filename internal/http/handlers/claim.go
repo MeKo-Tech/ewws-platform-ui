@@ -140,6 +140,12 @@ func parseClaimForm(
 		SharedSecrets:       registry.ParseNameList(st.SharedSecrets),
 	}
 
+	// Every new claim gets its own client_id per stage, whether or not a
+	// scope is set: the form cannot tell whether the app logs in, the chart
+	// injects EWWS_AUTH_CLIENT_ID into every container anyway, and an unused
+	// registered id costs nothing while a missing one needs a follow-up PR.
+	in.NewClientIDs()
+
 	var err error
 
 	// An unchecked component's fields are ignored entirely: leftovers from

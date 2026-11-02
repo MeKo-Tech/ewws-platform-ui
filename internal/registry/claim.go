@@ -127,7 +127,16 @@ type ClaimProbe struct {
 
 // ClaimAuth is the optional auth block.
 type ClaimAuth struct {
-	Scope string `yaml:"scope"`
+	Scope     string          `yaml:"scope,omitempty"`
+	ClientIDs *ClaimClientIDs `yaml:"client_ids,omitempty"`
+}
+
+// ClaimClientIDs is auth.client_ids: the app's own ewws-auth client_id per
+// stage, each a lowercase UUID. The registry's sync-auth-clients workflow
+// registers them in the issuer of that stage after the merge.
+type ClaimClientIDs struct {
+	Staging string `yaml:"staging,omitempty"`
+	Prod    string `yaml:"prod,omitempty"`
 }
 
 // ClaimFeatures is the required features block; `{}` when nothing is set.

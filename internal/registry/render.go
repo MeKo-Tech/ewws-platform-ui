@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // ClaimInput is the claim form payload from POST /claim.
@@ -32,7 +34,12 @@ type ClaimInput struct {
 	Staging StageInput
 	Prod    StageInput
 
-	AuthScope     string
+	AuthScope string
+	// ClientIDStaging and ClientIDProd are auth.client_ids.{staging,prod};
+	// empty leaves the key out. NewClientIDs fills both for a new claim.
+	ClientIDStaging string
+	ClientIDProd    string
+
 	Websocket     bool
 	SharedSecrets []string
 
@@ -114,8 +121,15 @@ func (c *ClaimInput) ToApp() *Claim {
 		claim.CreatedAt = quotedString(time.Now().UTC().Format(time.DateOnly))
 	}
 
-	if c.AuthScope != "" {
+	if c.AuthScope != "" || c.ClientIDStaging != "" || c.ClientIDProd != "" {
 		claim.Auth = &ClaimAuth{Scope: c.AuthScope}
+
+		if c.ClientIDStaging != "" || c.ClientIDProd != "" {
+			claim.Auth.ClientIDs = &ClaimClientIDs{
+				Staging: c.ClientIDStaging,
+				Prod:    c.ClientIDProd,
+			}
+		}
 	}
 
 	comps := &ClaimComponents{}
@@ -267,3 +281,12 @@ var (
 	MemoryOptions = []string{"128Mi", "256Mi", "512Mi", "1Gi", "2Gi"}
 	CPUOptions    = []string{"100m", "250m", "500m", "1", "2"}
 )
+
+// NewClientIDs gives the claim its own ewws-auth client_id per stage: two
+// fresh, distinct lowercase UUIDs. The registry registers them in the
+// staging and prod issuer after the merge, and the meko-app chart injects
+// the stage's id as EWWS_AUTH_CLIENT_ID.
+func (c *ClaimInput) NewClientIDs() {
+	c.ClientIDStaging = uuid.NewString()
+	c.ClientIDProd = uuid.NewString()
+}

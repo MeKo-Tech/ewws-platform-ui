@@ -322,16 +322,16 @@ templ docsLoginSection() {
 			für die Clients der Vibe-Apps; ein PR in ewws-auth ist nicht nötig.
 		</p>
 		<ol>
-			<li>Je Stage eine neue UUID erzeugen (<code>uuidgen | tr A-Z a-z</code>), nie eine kopieren.</li>
-			<li>Die IDs in den Claim unter <code>auth.client_ids.staging</code> / <code>.prod</code> eintragen (andere Stages gibt es nicht). <code>validate-apps</code> prüft das Format, dass kein anderer Claim dieselbe ID nennt und dass die Hosts der Stage unter <code>.apps.meko.dev</code> bzw. <code>.apps.meko.work</code> liegen.</li>
+			<li>Über das Claim-Formular entstehen die IDs automatisch: je Stage eine neue UUID unter <code>auth.client_ids.staging</code> / <code>.prod</code>.</li>
+			<li>Wer einen Claim direkt als PR anlegt, erzeugt pro Stage eine kleingeschriebene UUID (<code>uuidgen | tr A-Z a-z</code>) und trägt sie unter <code>auth.client_ids.staging</code> / <code>.prod</code> ein (andere Stages gibt es nicht). Dieselbe ID auf beiden Stages ist erlaubt; eine ID aus einer anderen App nie. <code>validate-apps</code> prüft das Format, dass kein anderer Claim dieselbe ID nennt und dass die Hosts der Stage unter <code>.apps.meko.dev</code> bzw. <code>.apps.meko.work</code> liegen.</li>
 			<li>Nach dem Merge registriert der Registry-Workflow <code>sync-auth-clients</code> die IDs automatisch im Issuer der Stage, mit <code>https://&lt;host&gt;/**</code> für <code>stages.&lt;s&gt;.host</code> und jeden Eintrag in <code>extra_hosts</code>. Einen Eintrag unter <code>oidcPublicClients</code> in ewws-auth bekommen Vibe-Apps nicht.</li>
 			<li>Der Chart setzt in jedem Container der Stage (Backend, Frontend, Init, CronJobs, <code>extra_workloads</code>) <code>EWWS_AUTH_CLIENT_ID</code> und <code>EWWS_AUTH_ISSUER</code> (<code>https://login.ewws.meko.dev</code> für staging, <code>https://login.meko.work</code> für prod). Issuer und Client-ID nicht von Hand in <code>env</code> setzen: ein gleichnamiger Eintrag überschreibt den injizierten Wert, und ein altes <code>APP_AUTH_ISSUER</code> gehört aus dem Claim entfernt.</li>
 			<li>Das Frontend kann Container-Env zur Laufzeit nicht lesen; sein Server muss die Werte durchreichen. Im Template holt das Frontend sie zur Laufzeit vom Backend (<code>GET /api/v1/config</code>).</li>
 		</ol>
 		<p>
 			<strong>Lokal entwickeln:</strong> immer gegen den dev-Issuer
-			<code>https://login.ewws.meko.dev</code>; dort ist für jeden registrierten Client jeder
-			Loopback-Port erlaubt, gegen prod keiner.
+			<code>https://login.ewws.meko.dev</code>; dort reicht jede kleingeschriebene UUID als
+			<code>client_id</code> mit PKCE gegen <code>localhost</code> (jeder Port), gegen prod gibt es kein Loopback.
 		</p>
 		<p>
 			Noch akzeptiert ewws-auth auch Logins ohne registrierten Client. Das wird abgeschaltet;

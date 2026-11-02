@@ -64,6 +64,9 @@ components:
         path: /
 auth:
   scope: ewlt
+  client_ids:
+    staging: 0f8b2c4e-6a1d-4e3b-9c7a-2d5f8e1b3a60
+    prod: 7c3e9a15-2b4f-4d6e-8a1c-5f9b0e2d4c71
 shared_secrets:
   - smtp-relay
   - app-db

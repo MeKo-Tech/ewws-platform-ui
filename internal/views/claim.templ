@@ -125,7 +125,9 @@ templ Claim(page PageProps, props ClaimProps) {
 					/>
 					<small>
 						Name des ewws-auth-Scopes der App. Verknüpft die App nur in dieser UI mit dem Scope und vergibt keine Rechte.
-						Für den Login selbst trägst du im PR <code>auth.client_ids</code> (eine neue UUID pro Stage) ein.
+						Die <code>client_id</code>s für den Login erzeugt das Formular automatisch: je Stage eine neue UUID unter <code>auth.client_ids</code>.
+						Die App liest <code>EWWS_AUTH_CLIENT_ID</code> und <code>EWWS_AUTH_ISSUER</code>, die das meko-app-Chart injiziert.
+						Lokal reicht auf dev jede UUID mit PKCE gegen <code>http://localhost</code>.
 						Siehe <a href={ templ.SafeURL(onboardingAuthURL) }>Onboarding: Login über ewws-auth</a>.
 					</small>
 				</label>

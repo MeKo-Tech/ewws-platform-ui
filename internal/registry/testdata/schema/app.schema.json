@@ -197,6 +197,16 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
           "minLength": 1,
           "maxLength": 128
+        },
+        "client_ids": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "ewws-auth client_id the app signs in with, per stage: staging against the dev issuer (login.ewws.meko.dev), prod against the prod issuer (login.meko.work).",
+          "properties": {
+            "staging": { "$ref": "#/definitions/client_id" },
+            "prod": { "$ref": "#/definitions/client_id" }
+          }
         }
       }
     },
@@ -296,6 +306,11 @@
     }
   },
   "definitions": {
+    "client_id": {
+      "type": "string",
+      "description": "An ewws-auth client_id: a lowercase UUID (`uuidgen | tr A-Z a-z`), this app's own. Named ids are not accepted.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
     "stage": {
       "type": "object",
       "additionalProperties": false,
