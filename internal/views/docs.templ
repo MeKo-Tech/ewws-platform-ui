@@ -56,7 +56,7 @@ templ docsFlowSection() {
 		<ol>
 			<li><strong>Template:</strong> Repo aus <a href={ templ.SafeURL(docsTemplateURL) }><code>go-react-template</code></a> anlegen (privat, unter <code>MeKo-Tech</code>).</li>
 			<li><strong>Claim:</strong> über das <a href="/claim">Claim-Formular</a> einen PR gegen <a href="https://github.com/MeKo-Tech/ewws-apps-registry"><code>ewws-apps-registry</code></a> öffnen (<code>apps/&lt;slug&gt;.yaml</code> plus die ersten Tag-Dateien).</li>
-			<li><strong>EWWS-Review:</strong> <code>{ "@MeKo-Tech/ewws" }</code> prüft und merged den Claim, registriert die <code>client_id</code> der App in ewws-auth, gibt dem Repo den Tagger-Key frei und trägt es ins Ruleset <code>vibe-app-repos</code> ein.</li>
+			<li><strong>EWWS-Review:</strong> <code>{ "@MeKo-Tech/ewws" }</code> prüft und merged den Claim und trägt das Repo ins Ruleset <code>vibe-app-repos</code> ein. Nach dem Merge registrieren Workflows der Registry die <code>auth.client_ids</code> automatisch in ewws-auth und geben dem Repo den Tagger-Key frei.</li>
 			<li><strong>Build + Tag:</strong> die CI der App baut die Images und schreibt das Tag per <code>build(tags)</code>-PR in die Registry.</li>
 			<li><strong>Deploy:</strong> Argo CD deployt die App als <code>&lt;slug&gt;-&lt;stage&gt;</code> in den Namespace <code>tenant-&lt;slug&gt;-&lt;stage&gt;</code>.</li>
 		</ol>
@@ -112,7 +112,12 @@ templ docsClaimSection() {
 			<li>DNS-safe lowercase: <code>^[a-z][a-z0-9-]&#123;2,30&#125;[a-z0-9]$</code>, eindeutig und nicht in <a href={ templ.SafeURL(docsReservedSlugs) }><code>reserved-slugs.yaml</code></a>.</li>
 			<li>Hosts: <code>&lt;slug&gt;.apps.meko.dev</code> (staging) und <code>&lt;slug&gt;.apps.meko.work</code> (prod).</li>
 		</ul>
-		<h3>Weitere Claim-Felder (meko-app 2.1.0)</h3>
+		<p>
+			Unter <code>images.&lt;c&gt;</code> steht im Claim nur das <code>repository</code>. Das Tag
+			liegt ausschließlich in <code>tags/&lt;slug&gt;/&lt;stage&gt;.yaml</code>; ein <code>tag</code>-Key
+			im Claim fällt durch die Validierung.
+		</p>
+		<h3>Weitere Claim-Felder (ab meko-app 2.1.0)</h3>
 		<table class="docs-table">
 			<thead>
 				<tr><th>Feld</th><th>Wozu</th></tr>
@@ -136,11 +141,11 @@ templ docsClaimSection() {
 				</tr>
 				<tr>
 					<td><code>sealed_secrets</code></td>
-					<td>Namen der app-eigenen Secrets, siehe <a href="#secrets">Abschnitt 6</a>.</td>
+					<td>Nur für <em>zusätzliche</em> Secrets mit einem anderen Namen als <code>&lt;slug&gt;-app</code> oder um <code>&lt;slug&gt;-app</code> auf einzelne Stages zu beschränken. <code>&lt;slug&gt;-app</code> selbst braucht keinen Eintrag, siehe <a href="#secrets">Abschnitt 6</a>.</td>
 				</tr>
 				<tr>
 					<td><code>auth.client_ids</code></td>
-					<td>Die eigene ewws-auth-<code>client_id</code> pro Stage, siehe <a href="#login">Abschnitt 7</a>.</td>
+					<td>Die eigene ewws-auth-<code>client_id</code> pro Stage (<code>staging</code>, <code>prod</code>), eine selbst erzeugte UUID, siehe <a href="#login">Abschnitt 7</a>.</td>
 				</tr>
 				<tr>
 					<td><code>resource_exception</code></td>
@@ -176,8 +181,8 @@ templ docsReviewSection() {
 			wird per Squash. Rund um den Merge erledigt EWWS:
 		</p>
 		<ol>
-			<li><strong>Login-Client:</strong> eine neue <code>client_id</code> für die App in ewws-auth unter <code>oidcPublicClients</code> registrieren, mit den exakten Hosts der App. Erst danach kommt <code>auth.client_ids</code> in den Claim.</li>
-			<li><strong>Tagger-Key:</strong> nach dem Claim-Merge <code>scripts/sync-tagger-secret-repos.sh --apply</code> in <code>ewws-apps-registry</code> ausführen. Damit bekommt dein Repo Zugriff auf <code>EWWS_REGISTRY_TAGGER_PRIVATE_KEY</code>; das muss passieren, bevor der erste Release-Lauf des App-Repos startet, sonst scheitert das Tag-Schreiben.</li>
+			<li><strong>Login-Client:</strong> nichts von Hand. Die <code>auth.client_ids</code> aus dem Claim registriert der Registry-Workflow <code>sync-auth-clients</code> nach dem Merge automatisch in ewws-auth; ein PR in ewws-auth ist nicht nötig.</li>
+			<li><strong>Tagger-Key:</strong> der Registry-Workflow <code>sync-tagger-secret-repos</code> gibt deinem Repo nach dem Merge Zugriff auf <code>EWWS_REGISTRY_TAGGER_PRIVATE_KEY</code>. Scheitert er, führt ein Org-Admin <code>scripts/sync-tagger-secret-repos.sh --apply</code> in <code>ewws-apps-registry</code> von Hand aus. Ohne den Zugriff scheitert das Tag-Schreiben im ersten Release-Lauf.</li>
 			<li><strong>Branch-Schutz:</strong> das Repo in die Repo-Liste des Org-Rulesets <code>vibe-app-repos</code> eintragen.</li>
 			<li><strong>Erstes Deploy:</strong> Release-Lauf prüfen bzw. neu anstoßen, staging vor prod.</li>
 		</ol>
@@ -237,12 +242,27 @@ templ docsSecretsSection() {
 			Registry in den Cluster:
 		</p>
 		<pre><code>{ docsSecretsFlowSnippet() }</code></pre>
+		<p>
+			<strong>Der Normalfall ist ein Secret <code>&lt;slug&gt;-app</code> pro Stage, ohne Claim-Eintrag.</strong>
+			Der Chart lädt es automatisch per <code>envFrom</code> (optional, als erste Quelle; spätere
+			<code>env</code>-Einträge gewinnen) in den Backend-Container und dessen <code>init_command</code>,
+			in CronJobs mit <code>component: backend</code> (Default) und in <code>extra_workloads</code>
+			mit <code>image_from: backend</code>. Frontend, Frontend-Jobs und <code>extra_workloads</code>
+			mit eigenem <code>image</code> bekommen es nicht.
+		</p>
 		<ol>
-			<li><code>just secrets-login</code>, dann Werte mit <code>just secrets-set &lt;stage&gt; &lt;name&gt; &lt;KEY&gt;</code> (Wert über stdin) oder <code>just secrets-edit &lt;stage&gt;</code> in <code>secrets/&lt;stage&gt;.sops.yaml</code> ablegen. Verschlüsselt wird nur mit dem Key <code>sops-key-vibe</code> im Key Vault <code>meko-vibe-vault</code>, nie mit <code>mekorp-vault</code>.</li>
-			<li><code>just secrets-seal</code> versiegelt jedes Secret nach <code>deploy/sealed/&lt;stage&gt;/&lt;name&gt;.yaml</code>; das wird committet.</li>
+			<li><code>just secrets-login</code>, dann einen Wert mit <code>pbpaste | just secrets-set &lt;stage&gt; &lt;KEY&gt;</code> (Wert über stdin, landet in <code>&lt;slug&gt;-app</code>) oder alles mit <code>just secrets-edit &lt;stage&gt;</code> in <code>secrets/&lt;stage&gt;.sops.yaml</code> ablegen. Verschlüsselt wird nur mit dem Key <code>sops-key-vibe</code> im Key Vault <code>meko-vibe-vault</code>, nie mit <code>mekorp-vault</code>.</li>
+			<li><code>just secrets-seal</code> versiegelt lokal (<code>kubeseal --scope strict</code>, Namespace <code>tenant-&lt;slug&gt;-&lt;stage&gt;</code>) nach <code>deploy/sealed/&lt;stage&gt;/&lt;slug&gt;-app.yaml</code>; das wird committet. Versiegelt wird nie in der CI.</li>
 			<li>Der Release-Workflow (<code>write-registry-secrets</code>) kopiert die SealedSecrets nach <code>secrets/&lt;slug&gt;/&lt;stage&gt;/</code> in der Registry. Dafür entschlüsselt die CI nichts und braucht keinen Key-Vault-Zugriff. Muss ein Workflow doch SOPS entschlüsseln (z.B. ein Test mit Secret), setzt er <code>AZURE_CLIENT_ID: { "${{ vars.VIBE_CODE_KEY_VAULT_CLIENT_ID }}" }</code>, <code>AZURE_CLIENT_SECRET: { "${{ secrets.VIBE_CODE_KEY_VAULT_CLIENT_SECRET }}" }</code> und <code>AZURE_TENANT_ID: { "${{ vars.AZURE_TENANT_ID }}" }</code>, nie die <code>AZURE_EWWS_KEY_VAULT_*</code>-Credentials.</li>
-			<li>Im Claim die Namen unter <code>sealed_secrets</code> eintragen und über <code>components.&lt;c&gt;.env_from</code> oder <code>env</code> referenzieren.</li>
+			<li>Im Claim ist für <code>&lt;slug&gt;-app</code> nichts zu tun.</li>
 		</ol>
+		<p>
+			<code>sealed_secrets</code> im Claim brauchst du nur für <strong>zusätzliche</strong> Secrets mit
+			einem anderen Namen (weiterer Top-Level-Key in der SOPS-Datei, z.B. das Passwort einer
+			Datenbank neben der App) oder um <code>&lt;slug&gt;-app</code> per <code>stages</code> auf
+			einzelne Stages zu beschränken. Solche Secrets referenzierst du über
+			<code>env_from</code> oder <code>env</code>:
+		</p>
 		<pre><code>{ docsSealedSecretsSnippet() }</code></pre>
 		<p>
 			Den Zugriff auf <code>meko-vibe-vault</code> gibt EWWS frei. Ausführlich:
@@ -254,7 +274,7 @@ templ docsSecretsSection() {
 			Bundles wie <code>ipoffice-readonly</code> (<code>IPOFFICE_DB_HOST</code>, <code>_PORT</code>,
 			<code>_NAME</code>, <code>_USER</code>, <code>_PASSWORD</code>, <code>_DSN</code>) stellt die
 			Plattform bereit. Du aktivierst sie im Claim unter <code>shared_secrets</code>; sie landen
-			am Backend-Pod, nie im Frontend.
+			am Backend-Pod, nie im Frontend. Der Name <code>&lt;slug&gt;-app</code> ist dort reserviert.
 		</p>
 		<div class="docs-callout">
 			<strong>IPOffice aus Linux-Containern:</strong> Windows-Auth (
@@ -277,13 +297,14 @@ secrets/<stage>.sops.yaml
 }
 
 func docsSealedSecretsSnippet() string {
-	return `# in apps/<slug>.yaml
+	return `# in apps/<slug>.yaml — nur für ein zusätzliches Secret, nicht für <slug>-app
 sealed_secrets:
-  - name: app-secrets
-components:
-  backend:
-    env_from:
-      - secret: app-secrets
+  - name: meine-app-db
+extra_workloads:
+  - name: postgres
+    # ...
+    env:
+      POSTGRES_PASSWORD: {secret: meine-app-db, key: POSTGRES_PASSWORD}
 `
 }
 
@@ -293,18 +314,30 @@ templ docsLoginSection() {
 		<p>
 			Jede App bekommt ihre <strong>eigene <code>client_id</code></strong>. Eine ID aus einer
 			anderen App, aus moin-bridge oder aus alten Templates zu kopieren ist nicht erlaubt:
-			ewws-auth hängt das Session-Cookie am Client, und geteilte oder nicht registrierte
-			IDs werden künftig abgelehnt.
+			ewws-auth hängt das Session-Cookie am Client. Die Registry ist die Quelle der Wahrheit
+			für die Clients der Vibe-Apps; ein PR in ewws-auth ist nicht nötig.
 		</p>
 		<ol>
-			<li>EWWS registriert pro Umgebung eine neue UUID in ewws-auth unter <code>oidcPublicClients</code>, mit den exakten Hosts der App (<code>https://&lt;slug&gt;.apps.meko.work/**</code> in prod, <code>https://&lt;slug&gt;.apps.meko.dev/**</code> in dev). Keine Host-Wildcards.</li>
-			<li>Nach dem Merge dieses PRs kommen die IDs in den Claim unter <code>auth.client_ids.staging</code> / <code>.prod</code>. <code>validate-apps</code> prüft, dass die ID registriert ist, den Host der Stage abdeckt und von keinem anderen Claim genutzt wird.</li>
-			<li>Das Backend des Templates braucht <code>APP_AUTH_ISSUER</code> pro Stage; das Frontend holt seine Konfiguration zur Laufzeit vom Backend.</li>
+			<li>Je Stage eine neue UUID erzeugen (<code>uuidgen | tr A-Z a-z</code>), nie eine kopieren.</li>
+			<li>Die IDs in den Claim unter <code>auth.client_ids.staging</code> / <code>.prod</code> eintragen (andere Stages gibt es nicht). <code>validate-apps</code> prüft das Format, dass kein anderer Claim dieselbe ID nennt und dass die Hosts der Stage unter <code>.apps.meko.dev</code> bzw. <code>.apps.meko.work</code> liegen.</li>
+			<li>Nach dem Merge registriert der Registry-Workflow <code>sync-auth-clients</code> die IDs automatisch im Issuer der Stage, mit <code>https://&lt;host&gt;/**</code> für <code>stages.&lt;s&gt;.host</code> und jeden Eintrag in <code>extra_hosts</code>. Einen Eintrag unter <code>oidcPublicClients</code> in ewws-auth bekommen Vibe-Apps nicht.</li>
+			<li>Der Chart setzt in jedem Container der Stage (Backend, Frontend, Init, CronJobs, <code>extra_workloads</code>) <code>EWWS_AUTH_CLIENT_ID</code> und <code>EWWS_AUTH_ISSUER</code> (<code>https://login.ewws.meko.dev</code> für staging, <code>https://login.meko.work</code> für prod). Issuer und Client-ID nicht von Hand in <code>env</code> setzen: ein gleichnamiger Eintrag überschreibt den injizierten Wert, und ein altes <code>APP_AUTH_ISSUER</code> gehört aus dem Claim entfernt.</li>
+			<li>Das Frontend kann Container-Env zur Laufzeit nicht lesen; sein Server muss die Werte durchreichen. Im Template holt das Frontend sie zur Laufzeit vom Backend (<code>GET /api/v1/config</code>).</li>
 		</ol>
 		<p>
-			<code>auth.scope</code> verknüpft die App in dieser UI nur mit ihrem ewws-auth-Scope.
-			<code>features.ingress_auth: ewws-auth</code> ist etwas anderes: ein Login vor dem
-			gesamten Ingress. Regeln: <a href={ templ.SafeURL(docsAuthClients) }>ewws-auth <code>docs/clients.md</code></a>.
+			<strong>Lokal entwickeln:</strong> immer gegen den dev-Issuer
+			<code>https://login.ewws.meko.dev</code>; dort ist für jeden registrierten Client jeder
+			Loopback-Port erlaubt, gegen prod keiner.
+		</p>
+		<p>
+			Noch akzeptiert ewws-auth auch Logins ohne registrierten Client. Das wird abgeschaltet;
+			danach kann sich eine App ohne ihre <code>auth.client_ids</code> im Claim nicht mehr anmelden.
+		</p>
+		<p>
+			<code>auth.scope</code> verknüpft die App nur in dieser UI mit ihrem ewws-auth-Scope und
+			vergibt keine Rechte. <code>features.ingress_auth</code> nimmt das Schema zwar an, es wird
+			aber nirgends ausgewertet: Es stellt <strong>keinen</strong> Login vor die App. Regeln:
+			<a href={ templ.SafeURL(docsAuthClients) }>ewws-auth <code>docs/clients.md</code></a>.
 		</p>
 	</section>
 }
@@ -356,8 +389,9 @@ templ docsFAQSection() {
 			<summary>Mein Release-Lauf scheitert beim Tag-Schreiben.</summary>
 			<p>
 				Meist liegt der Claim noch nicht auf <code>main</code> der Registry, oder das Repo hat
-				noch keinen Zugriff auf den Tagger-Key. Beides erledigt EWWS
-				(<a href="#review">Abschnitt 4</a>); danach den Lauf neu anstoßen.
+				noch keinen Zugriff auf den Tagger-Key, weil der Workflow
+				<code>sync-tagger-secret-repos</code> noch nicht gelaufen oder gescheitert ist
+				(<a href="#review">Abschnitt 4</a>). Im Zweifel bei EWWS melden, danach den Lauf neu anstoßen.
 			</p>
 		</details>
 		<details>
