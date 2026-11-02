@@ -69,6 +69,9 @@ func TestDocsDropsRetiredFlow(t *testing.T) {
 		"auth.ewws.meko",
 		"deploy-app.yml",
 		"secrets-set &lt;stage&gt; &lt;name&gt;",
+		// Bootstrap no longer scaffolds the values.env flow.
+		"values.sops.env",
+		"values.env",
 	} {
 		if strings.Contains(html, unwanted) {
 			t.Errorf("docs page still mentions %q", unwanted)

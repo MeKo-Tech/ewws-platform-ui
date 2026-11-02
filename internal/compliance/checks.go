@@ -26,36 +26,56 @@ func StandardChecks() []Check {
 	}
 }
 
-// checkPRTitleWorkflow returns pass when `.github/workflows/test-pr-title.yml`
+// checkPRTitleWorkflow returns pass when `.github/workflows/test-pr-title.y(a)ml`
 // exists on the default branch — the conventional-commits gate the rest of
 // the org uses to keep release-please happy.
 func checkPRTitleWorkflow(ctx context.Context, c *gh.Client, owner, repo string) (Status, string) {
-	const path = ".github/workflows/test-pr-title.yml"
-
-	_, _, resp, err := c.Repositories.GetContents(ctx, owner, repo, path, nil)
-	if isNotFound(resp, err) {
-		return StatusFail, "missing .github/workflows/test-pr-title.yml — Conventional-Commits PR-title gate not enforced"
-	}
-
-	if err != nil {
-		return StatusError, fmt.Sprintf("github: %v", err)
-	}
-
-	return StatusPass, ""
+	return checkAnyFile(
+		ctx,
+		c,
+		owner,
+		repo,
+		[]string{
+			".github/workflows/test-pr-title.yml",
+			".github/workflows/test-pr-title.yaml",
+		},
+		"missing .github/workflows/test-pr-title.y(a)ml — Conventional-Commits PR-title gate not enforced",
+	)
 }
 
 // checkReleasePleaseWorkflow looks for the release-please workflow file.
-// Either of the two common filenames counts.
+// Both common filenames count, in either spelling — go-react-template
+// ships `.yaml`, the bootstrap writes `.yml`.
 func checkReleasePleaseWorkflow(
 	ctx context.Context,
 	c *gh.Client,
 	owner, repo string,
 ) (Status, string) {
-	candidates := []string{
-		".github/workflows/release-please.yml",
-		".github/workflows/release.yml",
-	}
+	return checkAnyFile(
+		ctx,
+		c,
+		owner,
+		repo,
+		[]string{
+			".github/workflows/release-please.yml",
+			".github/workflows/release-please.yaml",
+			".github/workflows/release.yml",
+			".github/workflows/release.yaml",
+		},
+		"missing release-please workflow (.github/workflows/{release-please,release}.y(a)ml) — no automated version bumps",
+	)
+}
 
+// checkAnyFile passes when one of `candidates` exists, fails with
+// `failMsg` when all of them are absent, and errors when GitHub returned
+// something other than 404 and nothing was found.
+func checkAnyFile(
+	ctx context.Context,
+	c *gh.Client,
+	owner, repo string,
+	candidates []string,
+	failMsg string,
+) (Status, string) {
 	var lastErr error
 
 	for _, p := range candidates {
@@ -73,7 +93,7 @@ func checkReleasePleaseWorkflow(
 		return StatusError, fmt.Sprintf("github: %v", lastErr)
 	}
 
-	return StatusFail, "missing release-please workflow (.github/workflows/{release-please,release}.yml) — no automated version bumps"
+	return StatusFail, failMsg
 }
 
 // checkBranchProtectionMain checks that `main` is protected. We don't
