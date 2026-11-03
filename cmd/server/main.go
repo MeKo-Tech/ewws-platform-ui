@@ -20,6 +20,7 @@ import (
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/drift"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/ewwsauth"
 	httpapp "github.com/MeKo-Tech/ewws-platform-ui/internal/http"
+	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/handlers"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/http/middleware"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/metrics"
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/prometheus"
@@ -28,6 +29,39 @@ import (
 	"github.com/MeKo-Tech/ewws-platform-ui/internal/storage"
 	gh "github.com/google/go-github/v68/github"
 )
+
+// buildUsageEnvs lists the ewws-auth deployments /usage reads activity
+// from, prod (EWWS_AUTH_URL) first. Each deployment only records its own
+// logins, so staging needs its own client. Empty when neither is enabled.
+func buildUsageEnvs(cfg *config.Config) []handlers.UsageEnv {
+	var envs []handlers.UsageEnv
+
+	if cfg.UsageEnabled() {
+		envs = append(envs, handlers.UsageEnv{
+			Key:   handlers.UsageEnvProd,
+			Label: "Prod",
+			Client: ewwsauth.NewActivityClient(
+				cfg.EwwsAuthURL,
+				cfg.EwwsAuthMachineClientID,
+				cfg.EwwsAuthMachineClientSecret,
+			),
+		})
+	}
+
+	if cfg.StagingUsageEnabled() {
+		envs = append(envs, handlers.UsageEnv{
+			Key:   handlers.UsageEnvStaging,
+			Label: "Staging",
+			Client: ewwsauth.NewActivityClient(
+				cfg.EwwsAuthStagingURL,
+				cfg.EwwsAuthStagingMachineClientID,
+				cfg.EwwsAuthStagingMachineClientSecret,
+			),
+		})
+	}
+
+	return envs
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -59,16 +93,15 @@ func run() error {
 		logger.Warn(cfg.UsageWarning)
 	}
 
-	var activityCl *ewwsauth.ActivityClient
-	if cfg.UsageEnabled() {
-		activityCl = ewwsauth.NewActivityClient(
-			cfg.EwwsAuthURL,
-			cfg.EwwsAuthMachineClientID,
-			cfg.EwwsAuthMachineClientSecret,
-		)
+	if cfg.StagingUsageWarning != "" {
+		logger.Warn(cfg.StagingUsageWarning)
 	}
 
-	logger.Info("ewws-auth usage view", slog.Bool("enabled", activityCl.Enabled()))
+	usageEnvs := buildUsageEnvs(cfg)
+
+	logger.Info("ewws-auth usage view",
+		slog.Bool("enabled", cfg.UsageEnabled()),
+		slog.Bool("staging", cfg.StagingUsageEnabled()))
 
 	store := middleware.NewSessionStore(cfg.SessionSecret)
 
@@ -185,7 +218,7 @@ func run() error {
 		DriftStore:      driftStore,
 		Aggregator:      aggregator,
 		EwwsAuth:        authCl,
-		Activity:        activityCl,
+		UsageEnvs:       usageEnvs,
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Port)

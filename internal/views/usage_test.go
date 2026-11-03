@@ -290,3 +290,67 @@ func TestNavUsageLinkAdminOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestUsageEnvSwitchAndColumns(t *testing.T) {
+	single := renderComponent(t, Usage(adminProps, UsageOverview{
+		State: UsageOK,
+		Rows:  []UsageRow{{ClientID: "x", EnvLabel: "Prod", DetailURL: "/usage/x?env=prod"}},
+	}))
+	if strings.Contains(single, "Beide") || strings.Contains(single, "Umgebung") {
+		t.Error("single environment must render neither switch nor env column")
+	}
+
+	html := renderComponent(t, Usage(adminProps, UsageOverview{
+		State:   UsageOK,
+		Env:     "all",
+		ShowEnv: true,
+		EnvTabs: []UsageEnvTab{
+			{Label: "Prod", URL: "/usage?env=prod"},
+			{Label: "Staging", URL: "/usage?env=staging"},
+			{Label: "Beide", URL: "/usage?env=all", Active: true},
+		},
+		EnvNotices: []UsageEnvNotice{{EnvLabel: "Staging", State: UsageError, Message: "weg"}},
+		Rows: []UsageRow{
+			{ClientID: "b-prod", EnvLabel: "Prod", DetailURL: "/usage/b-prod?env=prod"},
+		},
+		PersonEnvs: []string{"Prod", "Staging"},
+		Persons: []UsagePerson{{
+			Name:     "Erika",
+			PerEnv:   []UsagePersonEnv{{Total: 11, ActiveDays: 6}, {Total: 1, ActiveDays: 1}},
+			Total:    12,
+			Dominant: "Prod",
+		}},
+	}))
+
+	for _, want := range []string{
+		`aria-current="page">Beide</a>`,
+		`href="/usage?env=staging"`,
+		"<th rowspan=\"2\">Umgebung</th>",
+		`href="/usage/b-prod?env=prod"`,
+		"Personen nach Umgebung",
+		"Erika",
+		"<strong>Staging:</strong>",
+		"weg",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+}
+
+func TestUsageDetailEnv(t *testing.T) {
+	html := renderComponent(t, UsageDetailPage(adminProps, UsageDetail{
+		State: UsageOK, ClientID: "x", Env: "staging", EnvLabel: "Staging",
+		BackURL: "/usage?env=staging", FormAction: "/usage/x",
+	}))
+
+	for _, want := range []string{
+		`href="/usage?env=staging"`,
+		"<dt>Umgebung</dt>",
+		`name="env" value="staging"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("detail lacks %q", want)
+		}
+	}
+}

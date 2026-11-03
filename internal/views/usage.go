@@ -30,6 +30,11 @@ type UsageWindow struct {
 
 // UsageRow is one client_id in the overview table.
 type UsageRow struct {
+	// Env and EnvLabel name the ewws-auth deployment the row comes from
+	// ("prod"/"Prod", "staging"/"Staging"). Not to be confused with
+	// Issuer, the token issuer inside that deployment.
+	Env        string
+	EnvLabel   string
 	Issuer     string // "ewws-auth" or "keycloak"
 	ClientID   string // "" = logins that named no client
 	Registered bool   // client_id is registered in ewws-auth
@@ -72,11 +77,70 @@ type UsageOverview struct {
 	// Silent lists registry client_ids that have no activity at all in
 	// ewws-auth's 30-day window.
 	Silent []UsageSilent
+
+	// Env is the selected environment: "prod", "staging" or "all".
+	Env string
+	// EnvTabs is the environment switch; empty (not rendered) when only
+	// one ewws-auth is configured.
+	EnvTabs []UsageEnvTab
+	// ShowEnv adds the "Umgebung" column (Env = "all").
+	ShowEnv bool
+	// EnvNotices are per-environment failures in Env = "all": that
+	// environment's rows are missing, the others render.
+	EnvNotices []UsageEnvNotice
+
+	// Persons is the per-person comparison across environments (only in
+	// Env = "all"), sorted by total use, descending. PersonEnvs labels
+	// the columns of each UsagePerson.PerEnv, in the same order.
+	Persons     []UsagePerson
+	PersonEnvs  []string
+	PersonsFrom string // YYYY-MM-DD, inclusive
+	PersonsTo   string
+	// PersonsHint explains missing or incomplete per-person numbers.
+	PersonsHint string
+}
+
+// UsageEnvTab is one link of the environment switch.
+type UsageEnvTab struct {
+	Label  string
+	URL    string
+	Active bool
+}
+
+// UsageEnvNotice is the failure of one environment's activity lookup.
+type UsageEnvNotice struct {
+	EnvLabel string
+	State    UsageState
+	Message  string
+}
+
+// UsagePerson is one person's activity per environment.
+type UsagePerson struct {
+	Name      string // display name, else the account id
+	AccountID string // set when Name is empty
+	PerEnv    []UsagePersonEnv
+	Total     int // logins + refreshes + uses over all environments
+	// Dominant is the label of the environment with the larger share,
+	// "" when equal.
+	Dominant string
+}
+
+// UsagePersonEnv is one person's use in one environment, summed over all
+// clients of that environment.
+type UsagePersonEnv struct {
+	Logins    int
+	Refreshes int
+	Uses      int
+	Total     int // Logins + Refreshes + Uses
+	// ActiveDays is the largest active-day count over the person's
+	// clients — a lower bound of the distinct days in that environment.
+	ActiveDays int
 }
 
 // UsageNoLoginApp is a registry app without auth.client_ids together with
 // the visits ewws-auth's beacon recorded for it (zero when none).
 type UsageNoLoginApp struct {
+	EnvLabel   string // set in Env = "all"
 	Slug       string
 	Accounts   int       // distinct identified persons ("Personen")
 	Devices    int       // distinct anonymous devices ("anonyme Geräte")
@@ -89,6 +153,9 @@ type UsageNoLoginApp struct {
 
 // UsageSilent is a registry client_id ewws-auth reported no activity for.
 type UsageSilent struct {
+	// EnvLabel names the environment the stage logs in to ("Prod",
+	// "Staging"); "" when only one ewws-auth is configured.
+	EnvLabel string
 	AppSlug  string
 	Stage    string
 	ClientID string
@@ -120,4 +187,10 @@ type UsageDetail struct {
 	Accounts   []UsageAccount
 	// FormAction is the path the date-range form submits to (GET).
 	FormAction string
+	// Env is the environment key ("prod", "staging"); EnvLabel is shown
+	// when several environments are configured.
+	Env      string
+	EnvLabel string
+	// BackURL is the overview link, carrying the environment.
+	BackURL string
 }

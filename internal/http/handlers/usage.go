@@ -49,9 +49,11 @@ type FetchAppsFunc func(ctx context.Context) ([]registry.App, error)
 // Usage renders GET /usage: login activity per client_id from ewws-auth,
 // linked to the registry apps via auth.client_ids. Admins only.
 type Usage struct {
-	Cfg      *config.Config
-	Activity *ewwsauth.ActivityClient // may be nil or disabled
-	Logger   *slog.Logger
+	Cfg *config.Config
+	// Envs are the ewws-auth deployments to read, prod first; empty
+	// renders "nicht konfiguriert".
+	Envs   []UsageEnv
+	Logger *slog.Logger
 	// FetchApps defaults to registry.FetchAppsFromGitHub(Cfg.AppsRegistryRepo).
 	FetchApps FetchAppsFunc
 }
@@ -60,7 +62,7 @@ type Usage struct {
 // one client in a date range. Admins only.
 type UsageClient struct {
 	Cfg       *config.Config
-	Activity  *ewwsauth.ActivityClient // may be nil or disabled
+	Envs      []UsageEnv // as in Usage
 	Logger    *slog.Logger
 	FetchApps FetchAppsFunc
 	// Now defaults to time.Now; the default range ends on its UTC date.
@@ -90,32 +92,153 @@ func (h Usage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	render(w, r, views.Usage(props, h.overview(r.Context())))
-}
-
-// overview fetches the ewws-auth activity and links it to the registry.
-// The registry is only read when the activity came back; its failure is
-// logged and the page renders without app links.
-func (h Usage) overview(ctx context.Context) views.UsageOverview {
-	res, err := h.Activity.Clients(ctx)
-	if err != nil {
-		state, msg := usageErrorState(h.Logger, "usage overview", err)
-		return views.UsageOverview{State: state, Message: msg}
+	env := r.URL.Query().Get("env")
+	if _, _, ok := selectEnvs(h.Envs, env, true); !ok && len(h.Envs) > 0 {
+		writeBadRequestHeader(w)
 	}
 
-	apps := loadRegistryApps(ctx, h.Logger, h.Cfg, h.FetchApps)
-	o := buildUsageOverview(res, apps)
+	render(w, r, views.Usage(props, h.overview(r.Context(), env)))
+}
 
-	if len(o.NoLogin) > 0 {
-		visits, err := h.Activity.Apps(ctx, usageVisitsDays)
-		if err != nil {
-			o.VisitsHint = visitsHint(ctx, h.Logger, err)
-		} else {
-			applyVisits(&o, visits)
+// writeBadRequestHeader answers 400 with the HTML content type, for a
+// page that still renders and explains the invalid parameter.
+func writeBadRequestHeader(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusBadRequest)
+}
+
+// overview fetches the ewws-auth activity of the selected environment(s)
+// — concurrently for env "all" — and links it to the registry. An
+// environment that fails is reported inline while the others render.
+// The registry is only read when some activity came back; its failure
+// is logged and the page renders without app links.
+func (h Usage) overview(ctx context.Context, env string) views.UsageOverview {
+	if len(h.Envs) == 0 {
+		return views.UsageOverview{State: views.UsageNotConfigured}
+	}
+
+	sel, key, ok := selectEnvs(h.Envs, env, true)
+	tabs := envTabs(h.Envs, key)
+
+	if !ok {
+		return views.UsageOverview{
+			State:   views.UsageInvalid,
+			Message: invalidEnvMessage(h.Envs, env, true),
+			EnvTabs: tabs,
 		}
 	}
 
+	res, errs := fetchPerEnv(ctx, sel,
+		func(ctx context.Context, c *ewwsauth.ActivityClient) (*ewwsauth.ClientsResult, error) {
+			return c.Clients(ctx)
+		})
+
+	var (
+		sets    []envClients
+		notices []views.UsageEnvNotice
+	)
+
+	for i, e := range sel {
+		if errs[i] != nil {
+			state, msg := usageErrorState(h.Logger, "usage overview "+e.Key, errs[i])
+			notices = append(notices, views.UsageEnvNotice{
+				EnvLabel: e.Label, State: state, Message: msg,
+			})
+
+			continue
+		}
+
+		sets = append(sets, envClients{Env: e, Res: res[i]})
+	}
+
+	if len(sets) == 0 {
+		o := views.UsageOverview{
+			State: notices[0].State, Message: notices[0].Message,
+			Env: key, EnvTabs: tabs,
+		}
+		if len(notices) > 1 {
+			o.EnvNotices = notices
+		}
+
+		return o
+	}
+
+	apps := loadRegistryApps(ctx, h.Logger, h.Cfg, h.FetchApps)
+	o := buildUsageOverview(sets, apps, len(h.Envs) > 1)
+	o.Env, o.EnvTabs, o.EnvNotices = key, tabs, notices
+	o.ShowEnv = key == usageEnvAll
+
+	if len(o.NoLogin) > 0 {
+		h.addVisits(ctx, &o, sets)
+	}
+
+	if o.ShowEnv {
+		collectPersons(ctx, h.Logger, &o, sets)
+	}
+
 	return o
+}
+
+// addVisits fetches the beacon visits of the apps without login per
+// environment. With one environment the "kein Login" list gets its
+// numbers; in "all" each environment that answered contributes its own
+// rows, and the failing ones a hint.
+func (h Usage) addVisits(ctx context.Context, o *views.UsageOverview, sets []envClients) {
+	envs := make([]UsageEnv, len(sets))
+	for i, s := range sets {
+		envs[i] = s.Env
+	}
+
+	res, errs := fetchPerEnv(ctx, envs,
+		func(ctx context.Context, c *ewwsauth.ActivityClient) (*ewwsauth.AppsResult, error) {
+			return c.Apps(ctx, usageVisitsDays)
+		})
+
+	if !o.ShowEnv {
+		if errs[0] != nil {
+			o.VisitsHint = visitsHint(ctx, h.Logger, errs[0])
+		} else {
+			applyVisits(o, res[0])
+		}
+
+		return
+	}
+
+	base := o.NoLogin
+
+	var (
+		rows  []views.UsageNoLoginApp
+		hints []string
+	)
+
+	for i, e := range envs {
+		if errs[i] != nil {
+			hints = append(hints, e.Label+": "+visitsHint(ctx, h.Logger, errs[i]))
+			continue
+		}
+
+		part := views.UsageOverview{NoLogin: slices.Clone(base)}
+		applyVisits(&part, res[i])
+
+		for _, a := range part.NoLogin {
+			a.EnvLabel = e.Label
+			a.DetailURL = usageDetailURL(visitsClientPrefix+a.Slug, "", e.Key)
+			rows = append(rows, a)
+		}
+
+		o.VisitsDays = part.VisitsDays
+	}
+
+	if len(rows) > 0 {
+		// Stable: the environments keep their order within one app.
+		slices.SortStableFunc(rows, func(a, b views.UsageNoLoginApp) int {
+			return cmp.Compare(a.Slug, b.Slug)
+		})
+
+		o.NoLogin, o.VisitsOK = rows, true
+	}
+
+	o.VisitsHint = strings.Join(hints, " ")
 }
 
 // visitsHint maps a failed GET /api/activity/apps to the hint shown
@@ -185,9 +308,14 @@ func (h UsageClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
+	if _, _, ok := selectEnvs(h.Envs, q.Get("env"), false); !ok && len(h.Envs) > 0 {
+		writeBadRequestHeader(w)
+	}
+
 	d := h.detail(
 		r.Context(),
 		r.PathValue("client_id"),
+		q.Get("env"),
 		q.Get("issuer"),
 		q.Get("from"),
 		q.Get("to"),
@@ -198,11 +326,12 @@ func (h UsageClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // detail validates the request locally (no ewws-auth call on invalid
-// input) and fetches the per-account activity. pathID is the
+// input) and fetches the per-account activity from the environment's
+// ewws-auth (env "" = prod, or the only one configured). pathID is the
 // unescaped path value; "-" stands for the empty client_id.
 func (h UsageClient) detail(
 	ctx context.Context,
-	pathID, issuer, fromRaw, toRaw string,
+	pathID, envRaw, issuer, fromRaw, toRaw string,
 	now time.Time,
 ) views.UsageDetail {
 	clientID := pathID
@@ -216,9 +345,30 @@ func (h UsageClient) detail(
 		From:       fromRaw,
 		To:         toRaw,
 		FormAction: "/usage/" + url.PathEscape(cmp.Or(clientID, "-")),
+		Env:        envRaw,
+		BackURL:    "/usage",
 	}
 
-	if !h.Activity.Enabled() {
+	if len(h.Envs) == 0 {
+		d.State = views.UsageNotConfigured
+		return d
+	}
+
+	sel, _, ok := selectEnvs(h.Envs, envRaw, false)
+	if !ok {
+		d.State, d.Message = views.UsageInvalid, invalidEnvMessage(h.Envs, envRaw, false)
+		return d
+	}
+
+	env := sel[0]
+	d.Env = env.Key
+
+	if len(h.Envs) > 1 {
+		d.EnvLabel = env.Label
+		d.BackURL = "/usage?env=" + url.QueryEscape(env.Key)
+	}
+
+	if !env.Client.Enabled() {
 		d.State = views.UsageNotConfigured
 		return d
 	}
@@ -236,7 +386,7 @@ func (h UsageClient) detail(
 
 	d.From, d.To = from, to
 
-	res, err := h.Activity.Client(ctx, issuer, clientID, from, to)
+	res, err := env.Client.Client(ctx, issuer, clientID, from, to)
 	if err != nil {
 		d.State, d.Message = usageErrorState(h.Logger, "usage detail", err)
 		return d
@@ -469,58 +619,77 @@ func stageRank(stage string) int {
 	}
 }
 
-// buildUsageOverview turns the ewws-auth rows plus the registry into the
-// overview model:
+// buildUsageOverview turns the ewws-auth rows of one or more
+// environments plus the registry into the overview model:
 //   - each row gets the registry app (and its stages) naming its client_id;
 //     should several apps name the same id, the first slug wins;
 //   - "app:<slug>" rows (beacon visits) link to the app with that slug;
+//   - with several sets, rows are grouped per app (by its 30-day logins
+//     over all environments) so the environments sit next to each other;
 //   - NoLogin lists apps without any auth.client_ids;
 //   - Silent lists registry client_ids without 30-day activity — no row
-//     at all, or only rows whose 30-day window is empty.
-func buildUsageOverview(res *ewwsauth.ClientsResult, apps []registry.App) views.UsageOverview {
+//     at all, or only rows whose 30-day window is empty. With multiEnv
+//     (several ewws-auth configured) a registry id is only judged by the
+//     environment its stage logs in to (prod → prod, others → staging);
+//     an id named for stages of both counts as silent only when it is
+//     idle in both. Ids whose environment is not among sets are skipped.
+//     Without multiEnv every id is judged by the single environment.
+func buildUsageOverview(
+	sets []envClients,
+	apps []registry.App,
+	multiEnv bool,
+) views.UsageOverview {
 	links := clientLinks(apps)
 	slugs := registrySlugs(apps)
-	active := map[string]bool{}
+	active := map[string]map[string]bool{} // env key → client_id → active
+	labels := map[string]string{}
+	envRank := map[string]int{}
 
-	o := views.UsageOverview{State: views.UsageOK, Today: res.Today}
+	o := views.UsageOverview{State: views.UsageOK}
 
-	for _, c := range res.Clients {
-		if c.Last30d != (ewwsauth.ActivityWindow{}) {
-			active[c.ClientID] = true
+	for i, s := range sets {
+		o.Today = cmp.Or(o.Today, s.Res.Today)
+		labels[s.Env.Key] = s.Env.Label
+		envRank[s.Env.Key] = i
+		active[s.Env.Key] = map[string]bool{}
+
+		for _, c := range s.Res.Clients {
+			if c.Last30d != (ewwsauth.ActivityWindow{}) {
+				active[s.Env.Key][c.ClientID] = true
+			}
+
+			row := views.UsageRow{
+				Env:        s.Env.Key,
+				EnvLabel:   s.Env.Label,
+				Issuer:     c.Issuer,
+				ClientID:   c.ClientID,
+				Registered: c.Registered,
+				Name:       c.Name,
+				Last1d:     views.UsageWindow{Users: c.Last1d.Users, Logins: c.Last1d.Logins},
+				Last7d:     views.UsageWindow{Users: c.Last7d.Users, Logins: c.Last7d.Logins},
+				Last30d:    views.UsageWindow{Users: c.Last30d.Users, Logins: c.Last30d.Logins},
+				DetailURL:  usageDetailURL(c.ClientID, c.Issuer, s.Env.Key),
+			}
+
+			row.AppSlug, row.AppStages = linkClient(links, slugs, c.ClientID)
+			row.Visits = strings.HasPrefix(c.ClientID, visitsClientPrefix)
+
+			o.Rows = append(o.Rows, row)
 		}
-
-		row := views.UsageRow{
-			Issuer:     c.Issuer,
-			ClientID:   c.ClientID,
-			Registered: c.Registered,
-			Name:       c.Name,
-			Last1d:     views.UsageWindow{Users: c.Last1d.Users, Logins: c.Last1d.Logins},
-			Last7d:     views.UsageWindow{Users: c.Last7d.Users, Logins: c.Last7d.Logins},
-			Last30d:    views.UsageWindow{Users: c.Last30d.Users, Logins: c.Last30d.Logins},
-			DetailURL: "/usage/" + url.PathEscape(cmp.Or(c.ClientID, "-")) +
-				"?issuer=" + url.QueryEscape(c.Issuer),
-		}
-
-		row.AppSlug, row.AppStages = linkClient(links, slugs, c.ClientID)
-		row.Visits = strings.HasPrefix(c.ClientID, visitsClientPrefix)
-
-		o.Rows = append(o.Rows, row)
 	}
 
-	slices.SortStableFunc(o.Rows, func(a, b views.UsageRow) int {
-		return cmp.Or(
-			cmp.Compare(b.Last30d.Logins, a.Last30d.Logins),
-			cmp.Compare(a.Name, b.Name),
-			cmp.Compare(a.ClientID, b.ClientID),
-			cmp.Compare(a.Issuer, b.Issuer),
-		)
-	})
+	sortUsageRows(o.Rows, len(sets) > 1, envRank)
+
+	firstEnv := ""
+	if len(sets) > 0 {
+		firstEnv = sets[0].Env.Key
+	}
 
 	for _, a := range apps {
 		if a.Auth == nil || !hasClientID(a.Auth.ClientIDs) {
 			o.NoLogin = append(o.NoLogin, views.UsageNoLoginApp{
 				Slug:      a.Slug,
-				DetailURL: "/usage/" + url.PathEscape(visitsClientPrefix+a.Slug),
+				DetailURL: usageDetailURL(visitsClientPrefix+a.Slug, "", firstEnv),
 			})
 		}
 	}
@@ -529,24 +698,97 @@ func buildUsageOverview(res *ewwsauth.ClientsResult, apps []registry.App) views.
 		return cmp.Compare(a.Slug, b.Slug)
 	})
 
-	for id, l := range links {
-		if active[id] {
-			continue
-		}
+	o.Silent = silentClients(links, active, labels, firstEnv, multiEnv)
 
-		for _, x := range l {
-			o.Silent = append(
-				o.Silent,
-				views.UsageSilent{AppSlug: x.slug, Stage: x.stage, ClientID: id},
-			)
+	return o
+}
+
+// sortUsageRows orders by 30-day logins; grouped, rows of the same app
+// (slug, else name, else client_id) stay together, groups ordered by
+// their summed 30-day logins, environments in configuration order.
+func sortUsageRows(rows []views.UsageRow, grouped bool, envRank map[string]int) {
+	group := func(r views.UsageRow) string { return cmp.Or(r.AppSlug, r.Name, r.ClientID) }
+	groupLogins := map[string]int{}
+
+	if grouped {
+		for _, r := range rows {
+			groupLogins[group(r)] += r.Last30d.Logins
 		}
 	}
 
-	slices.SortFunc(o.Silent, func(a, b views.UsageSilent) int {
+	slices.SortStableFunc(rows, func(a, b views.UsageRow) int {
+		if grouped {
+			if c := cmp.Or(
+				cmp.Compare(groupLogins[group(b)], groupLogins[group(a)]),
+				cmp.Compare(group(a), group(b)),
+				cmp.Compare(envRank[a.Env], envRank[b.Env]),
+			); c != 0 {
+				return c
+			}
+		}
+
+		return cmp.Or(
+			cmp.Compare(b.Last30d.Logins, a.Last30d.Logins),
+			cmp.Compare(a.Name, b.Name),
+			cmp.Compare(a.ClientID, b.ClientID),
+			cmp.Compare(a.Issuer, b.Issuer),
+		)
+	})
+}
+
+// silentClients lists the registry client_ids without activity; see
+// buildUsageOverview for how environments are judged.
+func silentClients(
+	links map[string][]clientLink,
+	active map[string]map[string]bool,
+	labels map[string]string,
+	onlyEnv string,
+	multiEnv bool,
+) []views.UsageSilent {
+	var out []views.UsageSilent
+
+	for id, l := range links {
+		var (
+			entries []clientLink
+			envs    []string
+		)
+
+		for _, x := range l {
+			env := onlyEnv
+			if multiEnv {
+				env = stageEnv(x.stage)
+			}
+
+			if _, fetched := active[env]; !fetched {
+				continue
+			}
+
+			entries = append(entries, x)
+
+			if !slices.Contains(envs, env) {
+				envs = append(envs, env)
+			}
+		}
+
+		if slices.ContainsFunc(envs, func(e string) bool { return active[e][id] }) {
+			continue
+		}
+
+		for _, x := range entries {
+			s := views.UsageSilent{AppSlug: x.slug, Stage: x.stage, ClientID: id}
+			if multiEnv {
+				s.EnvLabel = labels[stageEnv(x.stage)]
+			}
+
+			out = append(out, s)
+		}
+	}
+
+	slices.SortFunc(out, func(a, b views.UsageSilent) int {
 		return compareLinks(clientLink{a.AppSlug, a.Stage}, clientLink{b.AppSlug, b.Stage})
 	})
 
-	return o
+	return out
 }
 
 func hasClientID(ids map[string]string) bool {

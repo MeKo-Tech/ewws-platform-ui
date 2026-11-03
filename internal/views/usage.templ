@@ -16,9 +16,20 @@ templ Usage(props PageProps, o UsageOverview) {
 				}
 			</p>
 		</section>
-		@usageStateBox(o.State, o.Message)
+		if len(o.EnvTabs) > 0 {
+			@usageEnvSwitch(o.EnvTabs)
+		}
+		for _, n := range o.EnvNotices {
+			@usageEnvNotice(n)
+		}
+		if len(o.EnvNotices) == 0 {
+			@usageStateBox(o.State, o.Message)
+		}
 		if o.State == UsageOK {
-			@usageOverviewTable(o.Rows)
+			@usageOverviewTable(o.Rows, o.ShowEnv)
+			if o.ShowEnv {
+				@usagePersonsSection(o)
+			}
 			if len(o.Silent) > 0 {
 				@usageSilentSection(o.Silent)
 			}
@@ -27,6 +38,41 @@ templ Usage(props PageProps, o UsageOverview) {
 			}
 		}
 	}
+}
+
+// usageEnvSwitch links the environments (one ewws-auth each) and "Beide".
+templ usageEnvSwitch(tabs []UsageEnvTab) {
+	<nav class="toolbar usage-env" aria-label="Umgebung">
+		<span class="muted">Umgebung</span>
+		<div class="view-toggle">
+			for _, t := range tabs {
+				if t.Active {
+					<a class="view-btn is-active" href={ templ.URL(t.URL) } aria-current="page">{ t.Label }</a>
+				} else {
+					<a class="view-btn" href={ templ.URL(t.URL) }>{ t.Label }</a>
+				}
+			}
+		</div>
+	</nav>
+}
+
+// usageEnvNotice is the failure of one environment in the "Beide" view.
+templ usageEnvNotice(n UsageEnvNotice) {
+	<div class="alert alert--error" role="alert">
+		<strong>{ n.EnvLabel }:</strong>
+		switch n.State {
+			case UsageForbidden:
+				Recht <code>auth:activity:r</code> fehlt für den Maschinen-Account.
+			case UsageNotConfigured:
+				ewws-auth nicht konfiguriert.
+			default:
+				{ n.Message }
+		}
+	</div>
+}
+
+templ usageEnvBadge(label string) {
+	<span class="badge badge--neutral">{ label }</span>
 }
 
 // usageStateBox renders the notice for every state but UsageOK.
@@ -55,11 +101,14 @@ templ usageStateBox(state UsageState, message string) {
 	}
 }
 
-templ usageOverviewTable(rows []UsageRow) {
+templ usageOverviewTable(rows []UsageRow, showEnv bool) {
 	<table class="tenants-table usage-table">
 		<thead>
 			<tr>
 				<th rowspan="2">App</th>
+				if showEnv {
+					<th rowspan="2">Umgebung</th>
+				}
 				<th rowspan="2">ewws-auth Name</th>
 				<th rowspan="2">client_id</th>
 				<th rowspan="2">Issuer</th>
@@ -78,7 +127,7 @@ templ usageOverviewTable(rows []UsageRow) {
 		</thead>
 		<tbody>
 			if len(rows) == 0 {
-				<tr><td colspan="10" class="empty">Keine Aktivität in den letzten 30 Tagen.</td></tr>
+				<tr><td colspan={ usageColspan(10, showEnv) } class="empty">Keine Aktivität in den letzten 30 Tagen.</td></tr>
 			}
 			for _, r := range rows {
 				<tr class="tenant-row">
@@ -97,6 +146,11 @@ templ usageOverviewTable(rows []UsageRow) {
 							<span class="muted">—</span>
 						}
 					</td>
+					if showEnv {
+						<td>
+							@usageEnvBadge(r.EnvLabel)
+						</td>
+					}
 					<td>
 						{ r.Name }
 						if !r.Registered {
@@ -134,6 +188,9 @@ templ usageSilentSection(silent []UsageSilent) {
 				<tr>
 					<th>App</th>
 					<th>Stage</th>
+					if usageSilentHasEnv(silent) {
+						<th>Umgebung</th>
+					}
 					<th>client_id</th>
 				</tr>
 			</thead>
@@ -142,6 +199,11 @@ templ usageSilentSection(silent []UsageSilent) {
 					<tr>
 						<td><a href={ templ.URL("/app/" + s.AppSlug) }>{ s.AppSlug }</a></td>
 						<td>{ s.Stage }</td>
+						if usageSilentHasEnv(silent) {
+							<td>
+								@usageEnvBadge(s.EnvLabel)
+							</td>
+						}
 						<td class="mono">{ usageClientLabel(s.ClientID) }</td>
 					</tr>
 				}
@@ -162,10 +224,16 @@ templ usageNoLoginSection(o UsageOverview) {
 				Aufrufe der letzten { strconv.Itoa(o.VisitsDays) } Tage, von ewws-auth per Beacon erfasst:
 				Personen sind erkannte Accounts, anonyme Geräte Aufrufe ohne erkannte Anmeldung.
 			</p>
+			if o.VisitsHint != "" {
+				<p class="muted" role="status">{ o.VisitsHint }</p>
+			}
 			<table class="tenants-table usage-table">
 				<thead>
 					<tr>
 						<th>App</th>
+						if o.ShowEnv {
+							<th>Umgebung</th>
+						}
 						<th class="num">Personen</th>
 						<th class="num">anonyme Geräte</th>
 						<th class="num">Aufrufe</th>
@@ -176,6 +244,11 @@ templ usageNoLoginSection(o UsageOverview) {
 					for _, a := range o.NoLogin {
 						<tr class="tenant-row">
 							<td><a href={ templ.URL("/app/" + a.Slug) }>{ a.Slug }</a></td>
+							if o.ShowEnv {
+								<td>
+									@usageEnvBadge(a.EnvLabel)
+								</td>
+							}
 							<td class="num">
 								if a.Accounts > 0 {
 									<a href={ templ.URL(a.DetailURL) } title="Personen anzeigen">{ strconv.Itoa(a.Accounts) }</a>
@@ -203,10 +276,74 @@ templ usageNoLoginSection(o UsageOverview) {
 	</section>
 }
 
+// usagePersonsSection compares each person's use across environments.
+templ usagePersonsSection(o UsageOverview) {
+	<section class="detail-section usage-persons">
+		<h2>Personen nach Umgebung</h2>
+		<p class="muted">
+			Logins + Refreshes + Nutzungen je Person über alle Apps
+			if o.PersonsFrom != "" {
+				vom { o.PersonsFrom } bis { o.PersonsTo } (UTC).
+			}
+			Personen werden über Personio-ID, sonst Namen zusammengeführt; Maschinen-Accounts
+			sind nicht unterscheidbar und zählen mit. „aktive Tage“ ist das Maximum über die Apps.
+		</p>
+		if o.PersonsHint != "" {
+			<p class="muted" role="status">{ o.PersonsHint }</p>
+		}
+		<table class="tenants-table usage-table">
+			<thead>
+				<tr>
+					<th rowspan="2">Person</th>
+					for _, label := range o.PersonEnvs {
+						<th colspan="2" class="usage-table__group">{ label }</th>
+					}
+					<th rowspan="2" class="num">Gesamt</th>
+					<th rowspan="2">überwiegend</th>
+				</tr>
+				<tr>
+					for range o.PersonEnvs {
+						<th class="num">Nutzung</th>
+						<th class="num">aktive Tage</th>
+					}
+				</tr>
+			</thead>
+			<tbody>
+				if len(o.Persons) == 0 {
+					<tr><td colspan={ strconv.Itoa(3 + 2*len(o.PersonEnvs)) } class="empty">Keine Aktivität in den letzten 30 Tagen.</td></tr>
+				}
+				for _, p := range o.Persons {
+					<tr class="tenant-row">
+						<td>
+							if p.Name != "" {
+								{ p.Name }
+							} else {
+								<span class="mono">{ p.AccountID }</span>
+							}
+						</td>
+						for _, e := range p.PerEnv {
+							<td class="num" title={ usagePersonEnvTitle(e) }>{ strconv.Itoa(e.Total) }</td>
+							<td class="num">{ strconv.Itoa(e.ActiveDays) }</td>
+						}
+						<td class="num">{ strconv.Itoa(p.Total) }</td>
+						<td>
+							if p.Dominant != "" {
+								@usageEnvBadge(p.Dominant)
+							} else {
+								<span class="muted">gleich</span>
+							}
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</section>
+}
+
 // UsageDetailPage renders GET /usage/{client_id}: per-account activity.
 templ UsageDetailPage(props PageProps, d UsageDetail) {
 	@Layout(props) {
-		<p><a href="/usage">← Nutzung</a></p>
+		<p><a href={ templ.URL(usageBackURL(d)) }>← Nutzung</a></p>
 		<section class="hero">
 			<h1>
 				{ usageDetailTitle(d) }
@@ -219,6 +356,12 @@ templ UsageDetailPage(props PageProps, d UsageDetail) {
 				<dd class="mono">{ usageClientLabel(d.ClientID) }</dd>
 				<dt>Issuer</dt>
 				<dd>{ usageIssuerLabel(d.Issuer) }</dd>
+				if d.EnvLabel != "" {
+					<dt>Umgebung</dt>
+					<dd>
+						@usageEnvBadge(d.EnvLabel)
+					</dd>
+				}
 				if d.State == UsageOK {
 					<dt>Registriert</dt>
 					<dd>
@@ -246,6 +389,9 @@ templ usageRangeForm(d UsageDetail) {
 		<label>Von <input type="date" name="from" value={ d.From }/></label>
 		<label>Bis <input type="date" name="to" value={ d.To }/></label>
 		<input type="hidden" name="issuer" value={ d.Issuer }/>
+		if d.Env != "" {
+			<input type="hidden" name="env" value={ d.Env }/>
+		}
 		<button type="submit" class="btn-primary">Anzeigen</button>
 		<small class="muted">höchstens 366 Tage</small>
 	</form>

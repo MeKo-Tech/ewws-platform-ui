@@ -79,6 +79,22 @@ type Config struct {
 	// partially set (or set without EWWS_AUTH_URL) and /usage was
 	// therefore disabled. main logs it once on boot.
 	UsageWarning string
+
+	// EwwsAuthStagingURL is a second ewws-auth (staging, e.g.
+	// https://login.ewws.meko.dev) whose login activity /usage shows next
+	// to the one at EwwsAuthURL. Each deployment only records its own
+	// logins. EwwsAuthStagingMachineClientID/-Secret sign in there; when
+	// both EWWS_AUTH_STAGING_MACHINE_CLIENT_* are unset they fall back to
+	// EWWS_AUTH_MACHINE_CLIENT_* (the same Entra app is authorized on
+	// both issuers). Optional; see StagingUsageEnabled.
+	EwwsAuthStagingURL                 string
+	EwwsAuthStagingMachineClientID     string
+	EwwsAuthStagingMachineClientSecret string
+
+	// StagingUsageWarning is non-empty when the staging activity source
+	// was only partially configured and therefore disabled. main logs it
+	// once on boot.
+	StagingUsageWarning string
 }
 
 // LoadFromEnv reads configuration from the environment.
@@ -213,6 +229,10 @@ func (c *Config) loadEwwsAuth() {
 	c.EwwsAuthMachineClientID = os.Getenv("EWWS_AUTH_MACHINE_CLIENT_ID")
 	c.EwwsAuthMachineClientSecret = os.Getenv("EWWS_AUTH_MACHINE_CLIENT_SECRET")
 
+	// Read before the prod pair may be cleared below: the fallback uses
+	// the raw values, so staging works even without EWWS_AUTH_URL.
+	c.loadStagingUsage(c.EwwsAuthMachineClientID, c.EwwsAuthMachineClientSecret)
+
 	if !credentialPairUsable(c.EwwsAuthURL, c.EwwsAuthClientID, c.EwwsAuthClientSecret) {
 		c.EwwsAuthWarning = "ewws-auth scope catalog disabled: EWWS_AUTH_URL, EWWS_AUTH_CLIENT_ID " +
 			"and EWWS_AUTH_CLIENT_SECRET must all be set"
@@ -230,6 +250,37 @@ func (c *Config) loadEwwsAuth() {
 		c.EwwsAuthMachineClientID = ""
 		c.EwwsAuthMachineClientSecret = ""
 	}
+}
+
+// loadStagingUsage reads EWWS_AUTH_STAGING_URL and its machine
+// credential. The credential falls back as a pair to the prod machine
+// credential (fallbackID/-Secret) when both staging values are unset;
+// a half-set staging pair does not fall back. A URL without a usable
+// credential, or a staging pair without URL, disables staging with
+// StagingUsageWarning. The prod usage view is unaffected either way.
+func (c *Config) loadStagingUsage(fallbackID, fallbackSecret string) {
+	c.EwwsAuthStagingURL = os.Getenv("EWWS_AUTH_STAGING_URL")
+	id := os.Getenv("EWWS_AUTH_STAGING_MACHINE_CLIENT_ID")
+	secret := os.Getenv("EWWS_AUTH_STAGING_MACHINE_CLIENT_SECRET")
+	ownPair := id != "" || secret != ""
+
+	if !ownPair {
+		id, secret = fallbackID, fallbackSecret
+	}
+
+	switch {
+	case c.EwwsAuthStagingURL == "" && !ownPair:
+		// Staging not wanted: the fallback alone never warns.
+		id, secret = "", ""
+	case c.EwwsAuthStagingURL == "" || id == "" || secret == "":
+		c.StagingUsageWarning = "ewws-auth staging usage disabled: EWWS_AUTH_STAGING_URL and " +
+			"EWWS_AUTH_STAGING_MACHINE_CLIENT_ID/_SECRET (or EWWS_AUTH_MACHINE_CLIENT_ID/_SECRET) " +
+			"must all be set"
+		id, secret = "", ""
+	}
+
+	c.EwwsAuthStagingMachineClientID = id
+	c.EwwsAuthStagingMachineClientSecret = secret
 }
 
 // credentialPairUsable is false when the pair is set (fully or partly)
@@ -254,6 +305,15 @@ func (c *Config) UsageEnabled() bool {
 	return c.EwwsAuthURL != "" &&
 		c.EwwsAuthMachineClientID != "" &&
 		c.EwwsAuthMachineClientSecret != ""
+}
+
+// StagingUsageEnabled reports whether /usage can also fetch from the
+// staging ewws-auth: staging URL plus a machine credential (its own or
+// the prod one as fallback).
+func (c *Config) StagingUsageEnabled() bool {
+	return c.EwwsAuthStagingURL != "" &&
+		c.EwwsAuthStagingMachineClientID != "" &&
+		c.EwwsAuthStagingMachineClientSecret != ""
 }
 
 // PrometheusEnabled reports whether the metrics integration is wired up.
