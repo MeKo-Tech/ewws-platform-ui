@@ -31,6 +31,14 @@ const (
 	personsCallTimeout = 8 * time.Second
 )
 
+// personsBudget is the shared deadline of all drill-downs of the person
+// comparison: calls still queued when it passes do not start, running
+// ones are cancelled, and the page renders what came back. Well under
+// the server's 30 s WriteTimeout, leaving room for the overviews (up to
+// 10 s each, fetched concurrently) and the render. A var so tests can
+// shorten it.
+var personsBudget = 12 * time.Second
+
 // UsageEnv is one ewws-auth deployment /usage reads activity from.
 type UsageEnv struct {
 	Key    string // UsageEnvProd or UsageEnvStaging
@@ -169,7 +177,8 @@ type personJob struct {
 // API only has per-client counts, so it fetches the per-account
 // drill-down (issuer: both) of every client_id with activity in the
 // 30-day window, per environment, at most personsMaxInFlight at a time,
-// each bounded by personsCallTimeout. A failed call leaves its client
+// each bounded by personsCallTimeout and all together by personsBudget.
+// A failed, skipped or cancelled call leaves its client
 // out and is reported in PersonsHint.
 func collectPersons(
 	ctx context.Context,
@@ -209,16 +218,38 @@ func collectPersons(
 	results := make([]*ewwsauth.ClientResult, len(jobs))
 	sem := make(chan struct{}, personsMaxInFlight)
 
+	// One deadline for the whole fan-out, so the page renders well within
+	// the server's WriteTimeout however many clients there are.
+	ctx, cancelBudget := context.WithTimeout(ctx, personsBudget)
+	defer cancelBudget()
+
 	var (
-		wg     sync.WaitGroup
-		mu     sync.Mutex
-		failed int
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		missing int // failed, or skipped/cancelled by the budget
 	)
+
+	countMissing := func() {
+		mu.Lock()
+		missing++
+		mu.Unlock()
+	}
 
 	for i, j := range jobs {
 		wg.Go(func() {
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				countMissing()
+				return
+			}
+
 			defer func() { <-sem }()
+
+			if ctx.Err() != nil { // budget hit while queued
+				countMissing()
+				return
+			}
 
 			cctx, cancel := context.WithTimeout(ctx, personsCallTimeout)
 			defer cancel()
@@ -227,11 +258,9 @@ func collectPersons(
 
 			res, err := sets[j.set].Env.Client.Client(cctx, "", j.clientID, r[0], r[1])
 			if err != nil {
-				mu.Lock()
-				failed++
-				mu.Unlock()
+				countMissing()
 
-				if logger != nil {
+				if logger != nil && ctx.Err() == nil {
 					logger.Warn("usage persons: ewws-auth client activity",
 						slog.String("env", sets[j.set].Env.Key),
 						slog.String("client_id", j.clientID),
@@ -247,12 +276,25 @@ func collectPersons(
 
 	wg.Wait()
 
+	timedOut := ctx.Err() != nil
+	if timedOut && logger != nil {
+		logger.Warn("usage persons: drill-down budget exhausted",
+			slog.Duration("budget", personsBudget),
+			slog.Int("missing", missing),
+			slog.Int("calls", len(jobs)))
+	}
+
 	o.Persons = aggregatePersons(len(sets), jobs, results, sets)
 
-	if failed > 0 {
+	if missing > 0 {
+		reason := "sind fehlgeschlagen"
+		if timedOut {
+			reason = "sind fehlgeschlagen oder wurden wegen des Zeitlimits abgebrochen"
+		}
+
 		o.PersonsHint = fmt.Sprintf(
-			"%d von %d Abrufen bei ewws-auth sind fehlgeschlagen; die Zahlen sind unvollständig.",
-			failed, len(jobs),
+			"%d von %d Abrufen bei ewws-auth %s; die Zahlen sind unvollständig.",
+			missing, len(jobs), reason,
 		)
 	}
 }

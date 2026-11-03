@@ -486,3 +486,56 @@ func TestUsagePersonsBoundedConcurrency(t *testing.T) {
 		t.Errorf("persons = %+v", o.Persons)
 	}
 }
+
+// Drill-downs that hang must not hold the page past the shared budget:
+// queued calls do not start, running ones are cancelled, and the
+// overview renders with the persons hint. Without the budget every call
+// would wait for its own personsCallTimeout, 8 s × 40 calls / 6 slots.
+func TestUsagePersonsSharedBudget(t *testing.T) {
+	const nClients = 20
+
+	old := personsBudget
+	personsBudget = 200 * time.Millisecond
+
+	t.Cleanup(func() { personsBudget = old })
+
+	var clients []string
+	for i := range nClients {
+		clients = append(clients, fmt.Sprintf(
+			`{"issuer":"ewws-auth","client_id":"c%d","last_30d":{"users":1,"logins":1}}`, i))
+	}
+
+	ac, _ := fakeAuth(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/activity/clients" {
+			_, _ = w.Write([]byte(`{"today":"2026-11-02","clients":[` +
+				strings.Join(clients, ",") + `]}`))
+
+			return
+		}
+
+		<-r.Context().Done() // hang until the caller gives up
+	})
+
+	h := Usage{Envs: twoEnvs(ac, ac), Logger: discardLogger, FetchApps: noApps}
+
+	start := time.Now()
+	o := h.overview(context.Background(), "all")
+
+	if elapsed := time.Since(start); elapsed > personsBudget+2*time.Second {
+		t.Fatalf("overview took %v, want about the %v budget", elapsed, personsBudget)
+	}
+
+	if o.State != views.UsageOK || len(o.Rows) != 2*nClients {
+		t.Fatalf("overview not rendered: state %v, %d rows", o.State, len(o.Rows))
+	}
+
+	if !strings.Contains(o.PersonsHint, "von 40") || !strings.Contains(o.PersonsHint, "Zeitlimit") {
+		t.Errorf("PersonsHint = %q", o.PersonsHint)
+	}
+
+	rec := serveAs(t, h, adminUser, "/usage?env=all")
+	if body := rec.Body.String(); rec.Code != http.StatusOK ||
+		!strings.Contains(body, "c19") || !strings.Contains(body, "Zeitlimit") {
+		t.Errorf("status %d; page lacks the overview rows or the hint", rec.Code)
+	}
+}
