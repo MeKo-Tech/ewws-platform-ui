@@ -32,8 +32,8 @@ Lives at `https://platform.apps.meko.work` (Tailscale-internal, behind Traefik).
 | `GET /claim` | session (anonymous → redirect to `/auth/login`) | claim form |
 | `POST /claim` | session + CSRF | opens the registry PR, bootstraps the repo, renders a success page linking the PR |
 | `GET /docs` | anonymous | onboarding + best-practice page |
-| `GET /usage` | admin session (anonymous → redirect to `/auth/login`, non-admin → 403) | login activity per ewws-auth client_id (1/7/30 days), linked to registry apps via `auth.client_ids` (and `app:<slug>` to the app with that slug); apps without login show the beacon visits from `GET /api/activity/apps` (Personen, anonyme Geräte, Aufrufe, 30 days) — without that endpoint (404) or on an error the plain list with a hint |
-| `GET /usage/{client_id}` | admin session (as above) | per-account activity of one client; `?issuer=&from=&to=` (YYYY-MM-DD, at most 366 days); `-` = logins without client_id |
+| `GET /usage` | admin session (anonymous → redirect to `/auth/login`, non-admin → 403) | `?env=` `prod` / `staging` / `all` (default `prod`, or the only one configured; unknown → 400; the switch shows only with `EWWS_AUTH_STAGING_URL`); `all` fetches both ewws-auth concurrently into one table with an „Umgebung“ column (a failing one is shown inline) plus „Personen nach Umgebung“ (per-person logins+refreshes+uses per environment, from the per-client drill-down of every client active in 30 days, at most 6 calls in flight, 8 s each); login activity per ewws-auth client_id (1/7/30 days), linked to registry apps via `auth.client_ids` (and `app:<slug>` to the app with that slug); apps without login show the beacon visits from `GET /api/activity/apps` (Personen, anonyme Geräte, Aufrufe, 30 days) — without that endpoint (404) or on an error the plain list with a hint |
+| `GET /usage/{client_id}` | admin session (as above) | per-account activity of one client from that environment's ewws-auth; `?env=` (`prod` / `staging`) `&issuer=&from=&to=` (YYYY-MM-DD, at most 366 days); `-` = logins without client_id |
 | `GET /auth/login` | — | starts GitHub OAuth |
 | `GET /auth/callback` | — | finishes GitHub OAuth, redirects to `/` |
 | `POST /auth/logout` | — | clears session, redirects to `/` |
@@ -63,6 +63,9 @@ Lives at `https://platform.apps.meko.work` (Tailscale-internal, behind Traefik).
 | `EWWS_AUTH_CLIENT_SECRET` | no | — (HTTP Basic client secret) |
 | `EWWS_AUTH_MACHINE_CLIENT_ID` | no | — (Entra app id of the machine account; enables `/usage`) |
 | `EWWS_AUTH_MACHINE_CLIENT_SECRET` | no | — (client secret of that Entra app) |
+| `EWWS_AUTH_STAGING_URL` | no | — (e.g. `https://login.ewws.meko.dev`; second ewws-auth whose logins `/usage` shows next to `EWWS_AUTH_URL`'s) |
+| `EWWS_AUTH_STAGING_MACHINE_CLIENT_ID` | no | `EWWS_AUTH_MACHINE_CLIENT_ID` (as a pair: only when both staging values are unset) |
+| `EWWS_AUTH_STAGING_MACHINE_CLIENT_SECRET` | no | `EWWS_AUTH_MACHINE_CLIENT_SECRET` (as above) |
 
 `EWWS_AUTH_URL` is shared by two integrations, each with its own
 credential pair: `EWWS_AUTH_CLIENT_ID`/`_SECRET` enable the read-only
@@ -70,6 +73,17 @@ scope catalog on `/app/<slug>`, `EWWS_AUTH_MACHINE_CLIENT_ID`/`_SECRET`
 enable `/usage`. A pair that is only half set, or set without the URL,
 disables just that integration with a startup warning (startup never
 fails on them); the URL alone just leaves both off, without a warning.
+
+Each ewws-auth deployment records only its own logins, so `/usage` can
+read a second one: `EWWS_AUTH_STAGING_URL` (staging, serving dev and
+staging apps) next to `EWWS_AUTH_URL` (prod). It signs in with
+`EWWS_AUTH_STAGING_MACHINE_CLIENT_ID`/`_SECRET`, or — when both are
+unset — with the `EWWS_AUTH_MACHINE_CLIENT_*` pair, since the same
+Entra app is authorized on both issuers. A staging URL without a usable
+pair, a half-set staging pair, or a staging pair without URL disables
+just staging with a startup warning. In the „Ohne Aktivität“ list a
+registry client_id is judged by the environment its stage logs in to
+(`prod` → prod, other stages → staging).
 Scope lookups are cached in memory for 5 minutes and
 time out after 3 s; the detail page renders regardless of ewws-auth.
 

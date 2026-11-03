@@ -189,3 +189,113 @@ func TestUsageConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestStagingUsageConfig(t *testing.T) {
+	const (
+		prodURL    = "https://login.meko.work"
+		stagingURL = "https://login.ewws.meko.dev"
+		secret     = "machine-s3cr3t-value"
+	)
+
+	cases := []struct {
+		name                   string
+		url, machineID, machPW string // prod
+		stURL, stID, stPW      string // staging
+		wantProd, wantStaging  bool
+		wantID, wantPW         string // effective staging credential
+		wantProdWarn, wantWarn bool
+	}{
+		{name: "nothing set"},
+		{
+			name: "prod only, unchanged", url: prodURL, machineID: "entra", machPW: secret,
+			wantProd: true,
+		},
+		{
+			name: "staging falls back to the machine pair", url: prodURL,
+			machineID: "entra", machPW: secret, stURL: stagingURL,
+			wantProd: true, wantStaging: true, wantID: "entra", wantPW: secret,
+		},
+		{
+			name: "own staging pair wins", url: prodURL, machineID: "entra", machPW: secret,
+			stURL: stagingURL, stID: "entra-st", stPW: "st-pw",
+			wantProd: true, wantStaging: true, wantID: "entra-st", wantPW: "st-pw",
+		},
+		{
+			name: "half own pair does not fall back", url: prodURL,
+			machineID: "entra", machPW: secret, stURL: stagingURL, stID: "entra-st",
+			wantProd: true, wantWarn: true,
+		},
+		{
+			name: "staging url without any credential", url: prodURL, stURL: stagingURL,
+			wantWarn: true,
+		},
+		{
+			name: "staging pair without url", url: prodURL, machineID: "entra", machPW: secret,
+			stID: "entra-st", stPW: "st-pw",
+			wantProd: true, wantWarn: true,
+		},
+		{
+			// The fallback uses the raw machine pair: staging works even
+			// though prod lacks EWWS_AUTH_URL.
+			name: "staging only", machineID: "entra", machPW: secret, stURL: stagingURL,
+			wantStaging: true, wantID: "entra", wantPW: secret, wantProdWarn: true,
+		},
+		{
+			name: "half machine pair disables both", url: prodURL, machineID: "entra",
+			stURL: stagingURL, wantProdWarn: true, wantWarn: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("EWWS_AUTH_URL", tc.url)
+			t.Setenv("EWWS_AUTH_CLIENT_ID", "")
+			t.Setenv("EWWS_AUTH_CLIENT_SECRET", "")
+			t.Setenv("EWWS_AUTH_MACHINE_CLIENT_ID", tc.machineID)
+			t.Setenv("EWWS_AUTH_MACHINE_CLIENT_SECRET", tc.machPW)
+			t.Setenv("EWWS_AUTH_STAGING_URL", tc.stURL)
+			t.Setenv("EWWS_AUTH_STAGING_MACHINE_CLIENT_ID", tc.stID)
+			t.Setenv("EWWS_AUTH_STAGING_MACHINE_CLIENT_SECRET", tc.stPW)
+
+			cfg, err := LoadFromEnv()
+			if err != nil {
+				t.Fatalf("LoadFromEnv: %v", err)
+			}
+
+			if got := cfg.UsageEnabled(); got != tc.wantProd {
+				t.Errorf("UsageEnabled() = %v, want %v", got, tc.wantProd)
+			}
+
+			if got := cfg.StagingUsageEnabled(); got != tc.wantStaging {
+				t.Errorf("StagingUsageEnabled() = %v, want %v", got, tc.wantStaging)
+			}
+
+			if cfg.EwwsAuthStagingMachineClientID != tc.wantID ||
+				cfg.EwwsAuthStagingMachineClientSecret != tc.wantPW {
+				t.Errorf("staging credential = %q / %q, want %q / %q",
+					cfg.EwwsAuthStagingMachineClientID, cfg.EwwsAuthStagingMachineClientSecret,
+					tc.wantID, tc.wantPW)
+			}
+
+			if got := cfg.UsageWarning != ""; got != tc.wantProdWarn {
+				t.Errorf("usage warning = %q, want present=%v", cfg.UsageWarning, tc.wantProdWarn)
+			}
+
+			if got := cfg.StagingUsageWarning != ""; got != tc.wantWarn {
+				t.Errorf("staging warning = %q, want present=%v",
+					cfg.StagingUsageWarning, tc.wantWarn)
+			}
+
+			for _, s := range []string{secret, "st-pw"} {
+				if strings.Contains(cfg.StagingUsageWarning, s) {
+					t.Errorf("staging warning leaks a secret: %q", cfg.StagingUsageWarning)
+				}
+			}
+
+			if cfg.EwwsAuthEnabled() {
+				t.Error("scope catalog must stay off without its own pair")
+			}
+		})
+	}
+}

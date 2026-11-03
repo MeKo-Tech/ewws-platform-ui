@@ -132,7 +132,7 @@ func TestUsageNotConfiguredRenders(t *testing.T) {
 		}
 	}
 
-	o := Usage{Logger: discardLogger}.overview(context.Background())
+	o := Usage{Logger: discardLogger}.overview(context.Background(), "")
 	if o.State != views.UsageNotConfigured {
 		t.Errorf("overview state = %v, want UsageNotConfigured", o.State)
 	}
@@ -179,11 +179,11 @@ func TestUsageErrorStates(t *testing.T) {
 			ac, _ := fakeAuth(t, tc.api)
 
 			o := Usage{
-				Activity:  ac,
+				Envs:      prodEnv(ac),
 				Logger:    discardLogger,
 				FetchApps: noApps,
 			}.overview(
-				context.Background(),
+				context.Background(), "",
 			)
 			if o.State != tc.want || !strings.Contains(o.Message, tc.wantMsg) {
 				t.Errorf(
@@ -195,8 +195,8 @@ func TestUsageErrorStates(t *testing.T) {
 				)
 			}
 
-			d := UsageClient{Activity: ac, Logger: discardLogger, FetchApps: noApps}.
-				detail(context.Background(), "abc", "", "", "", now)
+			d := UsageClient{Envs: prodEnv(ac), Logger: discardLogger, FetchApps: noApps}.
+				detail(context.Background(), "abc", "", "", "", "", now)
 			if d.State != tc.want || !strings.Contains(d.Message, tc.wantMsg) {
 				t.Errorf(
 					"detail = %v %q, want %v containing %q",
@@ -216,7 +216,7 @@ func TestUsageErrorStates(t *testing.T) {
 	t.Run("unreachable", func(t *testing.T) {
 		ac := ewwsauth.NewActivityClient("http://127.0.0.1:1", "id", "secret")
 
-		o := Usage{Activity: ac, Logger: discardLogger}.overview(context.Background())
+		o := Usage{Envs: prodEnv(ac), Logger: discardLogger}.overview(context.Background(), "")
 		if o.State != views.UsageError || o.Message != usageErrorMessage {
 			t.Errorf("overview = %v %q, want UsageError", o.State, o.Message)
 		}
@@ -230,7 +230,7 @@ func TestUsageDetailValidatesLocally(t *testing.T) {
 	})
 
 	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
-	h := UsageClient{Activity: ac, Logger: discardLogger, FetchApps: noApps}
+	h := UsageClient{Envs: prodEnv(ac), Logger: discardLogger, FetchApps: noApps}
 
 	cases := []struct{ name, issuer, from, to string }{
 		{name: "bad issuer", issuer: "github"},
@@ -242,7 +242,7 @@ func TestUsageDetailValidatesLocally(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			d := h.detail(context.Background(), "a/b", tc.issuer, tc.from, tc.to, now)
+			d := h.detail(context.Background(), "a/b", "", tc.issuer, tc.from, tc.to, now)
 			if d.State != views.UsageInvalid || d.Message == "" {
 				t.Errorf("state = %v %q, want UsageInvalid with a message", d.State, d.Message)
 			}
@@ -281,7 +281,7 @@ func TestUsageDetailOK(t *testing.T) {
 	})
 
 	h := UsageClient{
-		Activity:  ac,
+		Envs:      prodEnv(ac),
 		Logger:    discardLogger,
 		FetchApps: noApps,
 		Now:       func() time.Time { return time.Date(2026, 10, 26, 23, 0, 0, 0, time.UTC) },
@@ -300,7 +300,7 @@ func TestUsageDetailOK(t *testing.T) {
 		t.Errorf("query = %q (default range: last 30 days ending today UTC)", gotQuery)
 	}
 
-	d := h.detail(context.Background(), "-", "ewws-auth", "", "", h.Now())
+	d := h.detail(context.Background(), "-", "", "ewws-auth", "", "", h.Now())
 	if d.State != views.UsageOK || d.ClientID != "" || d.FormAction != "/usage/-" {
 		t.Fatalf("detail = %+v", d)
 	}
@@ -343,7 +343,7 @@ func TestBuildUsageOverview(t *testing.T) {
 		}}},
 	}
 
-	o := buildUsageOverview(res, apps)
+	o := buildUsageOverview([]envClients{{Env: prodEnv(nil)[0], Res: res}}, apps, false)
 
 	if o.State != views.UsageOK || o.Today != "2026-10-26" {
 		t.Fatalf("overview = %+v", o)
@@ -379,11 +379,11 @@ func TestBuildUsageOverview(t *testing.T) {
 		t.Errorf("bridge-prod row = %+v", r)
 	}
 
-	if r := byID[""]; r.AppSlug != "" || r.DetailURL != "/usage/-?issuer=keycloak" {
+	if r := byID[""]; r.AppSlug != "" || r.DetailURL != "/usage/-?env=prod&issuer=keycloak" {
 		t.Errorf("empty client row = %+v", r)
 	}
 
-	if got := byID["a/b c"].DetailURL; got != "/usage/a%2Fb%20c?issuer=ewws-auth" {
+	if got := byID["a/b c"].DetailURL; got != "/usage/a%2Fb%20c?env=prod&issuer=ewws-auth" {
 		t.Errorf("DetailURL = %q", got)
 	}
 
@@ -402,8 +402,8 @@ func TestBuildUsageOverview(t *testing.T) {
 	}
 
 	wantNoLogin := []views.UsageNoLoginApp{
-		{Slug: "alpha", DetailURL: "/usage/app:alpha"},
-		{Slug: "zeta", DetailURL: "/usage/app:zeta"},
+		{Slug: "alpha", DetailURL: "/usage/app:alpha?env=prod"},
+		{Slug: "zeta", DetailURL: "/usage/app:zeta?env=prod"},
 	}
 	if !slices.Equal(o.NoLogin, wantNoLogin) {
 		t.Errorf("NoLogin = %+v, want %+v", o.NoLogin, wantNoLogin)
@@ -429,14 +429,14 @@ func TestUsageRegistryFailureKeepsPage(t *testing.T) {
 	})
 
 	h := Usage{
-		Activity: ac,
-		Logger:   discardLogger,
+		Envs:   prodEnv(ac),
+		Logger: discardLogger,
 		FetchApps: func(context.Context) ([]registry.App, error) {
 			return nil, errors.New("github down")
 		},
 	}
 
-	o := h.overview(context.Background())
+	o := h.overview(context.Background(), "")
 	if o.State != views.UsageOK || len(o.Rows) != 1 || o.Rows[0].AppSlug != "" {
 		t.Errorf("overview = %+v", o)
 	}
@@ -486,19 +486,19 @@ func TestUsageOverviewVisits(t *testing.T) {
 			{"slug":"unknown","accounts":9,"devices":9,"views":9,"last_seen_at":null}]}`))
 	})
 
-	h := Usage{Activity: ac, Logger: discardLogger, FetchApps: noLoginApps}
+	h := Usage{Envs: prodEnv(ac), Logger: discardLogger, FetchApps: noLoginApps}
 
-	o := h.overview(context.Background())
+	o := h.overview(context.Background(), "")
 	if o.State != views.UsageOK || !o.VisitsOK || o.VisitsDays != 30 || o.VisitsHint != "" {
 		t.Fatalf("overview = %+v", o)
 	}
 
 	want := []views.UsageNoLoginApp{
-		{Slug: "fuegekompass", DetailURL: "/usage/app:fuegekompass"},
+		{Slug: "fuegekompass", DetailURL: "/usage/app:fuegekompass?env=prod"},
 		{
 			Slug: "lpnt", Accounts: 2, Devices: 4, Views: 11,
 			LastSeenAt: time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC),
-			DetailURL:  "/usage/app:lpnt",
+			DetailURL:  "/usage/app:lpnt?env=prod",
 		},
 	}
 	if !slices.Equal(o.NoLogin, want) {
@@ -531,12 +531,12 @@ func TestUsageOverviewVisitsFallback(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := Usage{
-				Activity:  visitsAuth(t, tc.apps),
+				Envs:      prodEnv(visitsAuth(t, tc.apps)),
 				Logger:    discardLogger,
 				FetchApps: noLoginApps,
 			}
 
-			o := h.overview(context.Background())
+			o := h.overview(context.Background(), "")
 			if o.State != views.UsageOK || o.VisitsOK || o.VisitsHint != tc.wantHint {
 				t.Fatalf("overview = %+v", o)
 			}
@@ -565,11 +565,11 @@ func TestUsageOverviewSkipsVisitsWithoutNoLoginApps(t *testing.T) {
 	})
 
 	o := Usage{
-		Activity:  ac,
+		Envs:      prodEnv(ac),
 		Logger:    discardLogger,
 		FetchApps: noApps,
 	}.overview(
-		context.Background(),
+		context.Background(), "",
 	)
 	if o.State != views.UsageOK || o.VisitsHint != "" {
 		t.Errorf("overview = %+v", o)
@@ -586,8 +586,8 @@ func TestUsageDetailLinksVisitsClient(t *testing.T) {
 	})
 
 	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
-	d := UsageClient{Activity: ac, Logger: discardLogger, FetchApps: noLoginApps}.
-		detail(context.Background(), "app:lpnt", "", "", "", now)
+	d := UsageClient{Envs: prodEnv(ac), Logger: discardLogger, FetchApps: noLoginApps}.
+		detail(context.Background(), "app:lpnt", "", "", "", "", now)
 
 	if gotPath != "/api/activity/clients/app:lpnt" {
 		t.Errorf("path = %q", gotPath)
@@ -596,4 +596,9 @@ func TestUsageDetailLinksVisitsClient(t *testing.T) {
 	if d.State != views.UsageOK || d.AppSlug != "lpnt" || d.FormAction != "/usage/app:lpnt" {
 		t.Errorf("detail = %+v", d)
 	}
+}
+
+// prodEnv wraps one activity client as the only (prod) environment.
+func prodEnv(ac *ewwsauth.ActivityClient) []UsageEnv {
+	return []UsageEnv{{Key: UsageEnvProd, Label: "Prod", Client: ac}}
 }
